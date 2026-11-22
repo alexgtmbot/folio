@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>local.folio.editor</string>
+<key>CFBundleName</key><string>Folio</string>
+<key>CFBundleExecutable</key><string>Folio</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleVersion</key><string>1</string>
+<key>CFBundleDocumentTypes</key><array><dict>
+<key>CFBundleTypeName</key><string>Markdown</string>
+<key>CFBundleTypeRole</key><string>Editor</string>
+<key>CFBundleTypeExtensions</key><array><string>md</string><string>markdown</string></array>
+<key>NSDocumentClass</key><string>Folio.Document</string>
+</dict></array>
+</dict></plist>

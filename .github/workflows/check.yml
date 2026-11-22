@@ -1,0 +1,16 @@
+name: Checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  macos:
+    name: macOS build and test
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - run: cargo fmt --check
+      - run: cargo test --locked
+      - run: ./build.sh
+      - run: target/Folio.app/Contents/MacOS/Folio --self-test
