@@ -5,11 +5,11 @@
 <key>CFBundleExecutable</key><string>Folio</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleIconFile</key><string>Folio.icns</string>
-<key>CFBundleVersion</key><string>1</string>
+<key>CFBundleVersion</key><string>2</string>
 <key>CFBundleDocumentTypes</key><array><dict>
 <key>CFBundleTypeName</key><string>Markdown</string>
 <key>CFBundleTypeRole</key><string>Editor</string>
 <key>CFBundleTypeExtensions</key><array><string>md</string><string>markdown</string></array>
-<key>NSDocumentClass</key><string>Folio.Document</string>
+<key>NSDocumentClass</key><string>FolioDocument</string>
 </dict></array>
 </dict></plist>

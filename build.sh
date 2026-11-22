@@ -8,7 +8,7 @@ cp assets/Folio.icns LICENSE "$bundle/Resources/"
 cp Info.plist "$bundle/"
 version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml)
 plutil -insert CFBundleShortVersionString -string "$version" "$bundle/Info.plist"
-swiftc -O -module-name Folio -import-objc-header Folio.h main.swift target/release/libfolio.a -o "$bundle/MacOS/Folio"
+cp target/release/folio "$bundle/MacOS/Folio"
 strip -x "$bundle/MacOS/Folio"
 xattr -cr target/Folio.app
 codesign --force --sign - target/Folio.app
