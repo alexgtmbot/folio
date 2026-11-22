@@ -1,6 +1,6 @@
 # Folio
 
-Open a Markdown file, edit it visually, and save it in place. Folio is an Apple Silicon Mac app built with Swift/AppKit and a small Rust component for Markdown block markers.
+Open a Markdown file, edit it visually, and save it in place. Folio is an Apple Silicon Mac app written in Rust, using the native AppKit text editor and document system.
 
 ![Folio editing a Markdown document in Write mode](screenshots/write.png)
 
@@ -23,8 +23,10 @@ Run `./package.sh` on Apple Silicon to build a versioned disk image in `target/`
 
 ## How it works
 
-Folio keeps one editable string containing the original Markdown. The native AppKit text view applies fonts, colors, and paragraph spacing directly to ranges of that string. Write mode gives recognized headings and emphasis their visual styling. Source mode displays the same characters in monospace. Switching views never converts the document through HTML.
+Folio keeps one editable string containing the original Markdown. Folio applies fonts, colors, and paragraph spacing directly to ranges of that string. Write mode gives recognized headings and emphasis their visual styling. Source mode displays the same characters in monospace. Switching views never converts the document through HTML.
 
-The Rust function in [src/lib.rs](src/lib.rs) recognizes heading, quote, and bullet prefixes. Swift passes each line as UTF-8 bytes through [Folio.h](Folio.h). Because those prefixes are ASCII, their byte lengths also work as offsets in the native text view. The [document controller](main.swift) handles selections, formatting commands, the heading outline, and file I/O.
+Start with [the editing rules](src/lib.rs). These ordinary Rust functions recognize Markdown markers, preserve the document’s UTF-8 encoding and line endings, and translate AppKit selections into Rust string offsets. Run `cargo test --lib` to exercise them without a window.
+
+Follow an edit through [the document controller](src/document.rs). Pressing **⌘1** replaces the current line’s block prefix, then the text view delegate restyles the same string. Saving serializes that string through the system document framework. [The window](src/window.rs) and [application menus](src/main.rs) use the `objc2` Rust bindings to AppKit.
 
 Try typing `Field notes`, pressing **⌘1**, then **⌘/**. The source shows `# Field notes`. Save with **⌘S** and open the file in another text editor to see those same characters.
