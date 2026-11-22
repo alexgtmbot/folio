@@ -1,32 +1,37 @@
 # Folio
 
-Open a Markdown file, edit it visually, and save it in place. Folio is an Apple Silicon Mac app written in Rust, using the native AppKit text editor and document system.
+A standalone, offline Markdown editor for macOS, Windows, and Linux. The same Rust code handles the window contents, keyboard commands, visual formatting, and local files on all three platforms. Folio uses egui and eframe with the operating system’s window and file-dialog backends.
 
-![Folio editing a Markdown document in Write mode](screenshots/write.png)
+![Folio in Write mode](screenshots/write.png)
 
-## Build and run
+## Run from source
 
-On an Apple Silicon Mac, install Xcode Command Line Tools and a stable Rust toolchain with Cargo (Rust 2024 edition). From the project directory, run:
+Install stable Rust and the C linker for your platform (Xcode Command Line Tools on macOS, Visual Studio C++ Build Tools on Windows). On Ubuntu, install the build prerequisites:
 
 ```sh
-./build.sh
-open target/Folio.app
+sudo apt install build-essential pkg-config libxkbcommon-dev libwayland-dev libgl1-mesa-dev libx11-dev libxcb1-dev
 ```
 
-Use **File → Open** to open a UTF-8 Markdown document and **⌘S** to save. Use **Format** to apply headings, emphasis, lists, and quotes. **⌘/** switches between Write and [Source view](screenshots/source.png). The outline jumps to headings. Tables and images remain editable as source.
+From this checkout, run `cargo run --release --locked`. To open an existing document at startup, append `-- path/to/notes.md`. The first build downloads dependencies. The installed editor works offline.
 
-See [contributing](CONTRIBUTING.md) for development checks. Folio is [MIT licensed](LICENSE).
+## Editing
 
-## Package for macOS
+Open local files through **File → Open** or drag them into the window. Each document has its own tab. Choose **Write** for visual formatting or **Source** for literal Markdown. The outline jumps to headings, and Find selects the next occurrence.
 
-Run `./package.sh` on Apple Silicon to build a versioned disk image in `target/`. Open the image and drag Folio into Applications. The package includes the MIT license. Local builds use an ad hoc signature. Set `SIGN_IDENTITY` to a Developer ID Application identity to sign the packaged app. Notarization is a separate release step.
+| Command | Mac | Windows / Linux |
+|---|---|---|
+| Open / Save | ⌘O / ⌘S | Ctrl+O / Ctrl+S |
+| Write / Source | ⌘/ | Ctrl+/ |
+| Heading | ⌘1–3 | Ctrl+1–3 |
+| Bold / Italic | ⌘B / ⌘I | Ctrl+B / Ctrl+I |
+| Toggle task | ⇧⌘T | Ctrl+Shift+T |
+
+Named documents autosave after two idle seconds. New documents ask for a destination when saved. If a file changes on disk, Folio stops the save and lets you save a separate copy. Unsupported Markdown syntax stays in the file.
 
 ## How it works
 
-Folio keeps one editable string containing the original Markdown. Folio applies fonts, colors, and paragraph spacing directly to ranges of that string. Write mode gives recognized headings and emphasis their visual styling. Source mode displays the same characters in monospace. Switching views never converts the document through HTML.
+[The editor](src/main.rs) feeds one editable string to egui. [The layout code](src/window.rs) styles that string while preserving character positions for the caret. [The document code](src/document.rs) translates selections to UTF-8 byte offsets, edits Markdown, and uses a temporary file in the destination directory for atomic replacement. [The Markdown rules](src/lib.rs) handle block prefixes, inline formatting, code fences, BOMs and line endings.
 
-Start with [the editing rules](src/lib.rs). These ordinary Rust functions recognize Markdown markers, preserve the document’s UTF-8 encoding and line endings, and translate AppKit selections into Rust string offsets. Run `cargo test --lib` to exercise them without a window.
+Run `cargo test --locked` for the editing and file tests. Run `cargo run --release --locked -- --self-test` to exercise both editor layouts and a disk round trip. On Apple Silicon, `./package.sh` builds a drag-to-Applications disk image. Linux and Windows packages include the executable and licenses.
 
-Follow an edit through [the document controller](src/document.rs). Pressing **⌘1** replaces the current line’s block prefix, then the text view delegate restyles the same string. Saving serializes that string through the system document framework. [The window](src/window.rs) and [application menus](src/main.rs) use the `objc2` Rust bindings to AppKit.
-
-Try typing `Field notes`, pressing **⌘1**, then **⌘/**. The source shows `# Field notes`. Save with **⌘S** and open the file in another text editor to see those same characters.
+[Contributing](CONTRIBUTING.md) · [MIT license](LICENSE) · [Ubuntu font license](assets/fonts/UFL.txt)
