@@ -408,17 +408,20 @@ impl eframe::App for Editor {
         }
         self.toolbar(ctx);
         self.editor(ctx);
-        for tab in &mut self.tabs {
-            if let (Some(time), Some(path)) = (tab.edited, tab.doc.path.clone()) {
-                if time.elapsed() >= Duration::from_secs(2) {
-                    tab.edited = None;
-                    if let Err(e) = tab.doc.save(&path) {
-                        self.error = Some(format!("Autosave failed for {}. {e}", path.display()));
+        if self.closing.is_none() {
+            for tab in &mut self.tabs {
+                if let (Some(time), Some(path)) = (tab.edited, tab.doc.path.clone()) {
+                    if time.elapsed() >= Duration::from_secs(2) {
+                        tab.edited = None;
+                        if let Err(e) = tab.doc.save(&path) {
+                            self.error =
+                                Some(format!("Autosave failed for {}. {e}", path.display()));
+                        }
+                    } else {
+                        ctx.request_repaint_after(
+                            Duration::from_secs(2) - time.elapsed().min(Duration::from_secs(2)),
+                        );
                     }
-                } else {
-                    ctx.request_repaint_after(
-                        Duration::from_secs(2) - time.elapsed().min(Duration::from_secs(2)),
-                    );
                 }
             }
         }
