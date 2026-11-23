@@ -62,6 +62,23 @@ struct ExistingLabel {
     title: String,
 }
 
+impl ExistingLabel {
+    fn unlinked_text(&self) -> String {
+        if let Some(markdown) = &self.markdown {
+            return markdown.clone();
+        }
+        // Autolinks have a plain-text label that may contain Markdown delimiters.
+        let mut plain = String::new();
+        for c in self.displayed.chars() {
+            if c.is_ascii_punctuation() {
+                plain.push('\\');
+            }
+            plain.push(c);
+        }
+        plain
+    }
+}
+
 pub struct Link {
     pub tab: u64,
     pub range: Range<usize>,
@@ -275,6 +292,12 @@ impl Link {
                 {
                     return Some(self.apply());
                 }
+                if !self.image
+                    && let Some(existing) = &self.existing
+                    && ui.button("Remove link").clicked()
+                {
+                    return Some(Some(existing.unlinked_text()));
+                }
                 ui.button("Cancel").clicked().then_some(None)
             })
             .inner
@@ -290,6 +313,24 @@ impl Link {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn removing_a_link_preserves_inline_formatting_and_reference_definitions() {
+        let source = "See [the **map**][route].\n\n[route]: guide.md";
+        let dialog = Link::at_selection(0, source, 6..6, false);
+        let mut text = source.to_owned();
+        text.replace_range(dialog.range, &dialog.existing.unwrap().unlinked_text());
+        assert_eq!(text, "See the **map**.\n\n[route]: guide.md");
+
+        let url = "https://example.org/a*b*c";
+        let dialog = Link::at_selection(0, &format!("<{url}>"), 1..1, false);
+        let mut html = String::new();
+        pulldown_cmark::html::push_html(
+            &mut html,
+            pulldown_cmark::Parser::new(&dialog.existing.unwrap().unlinked_text()),
+        );
+        assert_eq!(html, format!("<p>{url}</p>\n"));
+    }
+
     #[test]
     fn applying_unchanged_links_leaves_original_source_untouched() {
         for (source, image) in [
