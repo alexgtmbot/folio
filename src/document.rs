@@ -162,6 +162,16 @@ pub fn format(text: &mut String, selection: Range<usize>, cmd: Format) -> Range<
             selection.start + shift..selection.end + shift
         }
         Format::Wrap(mark) => {
+            let content = &text[start..end];
+            let trimmed = content.trim();
+            if !content.is_empty() && trimmed.is_empty() {
+                return selection;
+            }
+            let leading = &content[..content.len() - content.trim_start().len()];
+            let start = start + leading.len();
+            let end = start + trimmed.len();
+            let first = selection.start + leading.chars().count();
+            let selection = first..first + trimmed.chars().count();
             if text[..start].ends_with(mark) && text[end..].starts_with(mark) {
                 text.replace_range(end..end + mark.len(), "");
                 text.replace_range(start - mark.len()..start, "");
@@ -469,6 +479,23 @@ mod tests {
         assert_eq!(list_enter("- ", 2), Some((0..2, String::new())));
         assert_eq!(list_enter("```\n- literal", 13), None);
     }
+    #[test]
+    fn visual_marks_keep_selected_edge_whitespace_outside_delimiters() {
+        for mark in ["**", "*", "~~"] {
+            let mut text = "Say\u{a0}café now".to_owned();
+            let selected = format(&mut text, 3..9, Format::Wrap(mark));
+            assert_eq!(text, format!("Say\u{a0}{mark}café{mark} now"));
+            assert_eq!(
+                &text[byte_at(&text, selected.start)..byte_at(&text, selected.end)],
+                "café"
+            );
+            format(&mut text, selected, Format::Wrap(mark));
+            assert_eq!(text, "Say\u{a0}café now");
+            assert_eq!(format(&mut text, 3..4, Format::Wrap(mark)), 3..4);
+            assert_eq!(text, "Say\u{a0}café now");
+        }
+    }
+
     #[test]
     fn visual_inline_code_round_trips_literal_backticks_and_spaces() {
         for literal in ["call `x` now", "``🦀`", " padded ", "   ", "ordinary"] {
