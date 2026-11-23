@@ -292,6 +292,26 @@ impl Editor {
         tab.edited = Some(Instant::now());
     }
 
+    fn paste_link(&mut self, clipboard: &str) -> bool {
+        let tab = &mut self.tabs[self.active];
+        if tab.source || tab.selection.is_empty() {
+            return false;
+        }
+        let range =
+            byte_at(&tab.doc.text, tab.selection.start)..byte_at(&tab.doc.text, tab.selection.end);
+        let Some(markdown) = link::paste_over_selection(&tab.doc.text, range.clone(), clipboard)
+        else {
+            return false;
+        };
+        let caret = tab.selection.start + markdown.chars().count();
+        tab.doc.text.replace_range(range, &markdown);
+        self.jump = Some(caret..caret);
+        tab.selection = caret..caret;
+        tab.edited = Some(Instant::now());
+        tab.doc.dirty = true;
+        true
+    }
+
     fn insert_link(&mut self, image: bool) {
         let tab = &self.tabs[self.active];
         let range =
@@ -1357,7 +1377,7 @@ impl eframe::App for Editor {
                     self.error = Some(format!("Could not read clipboard. {e}"));
                     false
                 }
-                _ => !text.is_empty(),
+                _ => !text.is_empty() && !self.paste_link(text),
             }
         });
     }
@@ -1629,6 +1649,23 @@ mod slash_menu_tests {
             }
         }
         assert_eq!(app.tabs[app.active].doc.text, "- parent\n- child");
+    }
+    #[test]
+    fn pasting_a_url_in_write_can_be_undone_and_source_paste_is_literal() {
+        let mut app = Editor::new();
+        let mut doc = Document::default();
+        doc.text = "Meet **at noon**.".into();
+        app.add(doc);
+        app.tabs[app.active].selection = 7..14;
+        assert!(app.paste_link("https://example.org"));
+        let tab = &mut app.tabs[app.active];
+        assert_eq!(tab.doc.text, "Meet **[at noon](https://example.org)**.");
+        tab.history.record(&tab.doc.text);
+        tab.history.restore(&mut tab.doc.text, false).unwrap();
+        assert_eq!(tab.doc.text, "Meet **at noon**.");
+        tab.selection = 7..14;
+        tab.source = true;
+        assert!(!app.paste_link("https://example.org"));
     }
     #[test]
     fn keyboard_accepts_checkbox_alias_and_escape_preserves_literal_query() {

@@ -2,6 +2,42 @@
 use eframe::egui;
 use std::ops::Range;
 
+/// Link a selection in ordinary prose; other paste contexts keep their normal editor behavior.
+pub fn paste_over_selection(source: &str, range: Range<usize>, clipboard: &str) -> Option<String> {
+    use pulldown_cmark::{Event, Parser, Tag, TagEnd};
+    let destination = clipboard.trim();
+    if range.is_empty()
+        || destination
+            .chars()
+            .any(|c| c.is_whitespace() || c.is_control())
+    {
+        return None;
+    }
+    let url = url::Url::parse(destination).ok()?;
+    if !matches!(url.scheme(), "http" | "https") || url.host().is_none() {
+        return None;
+    }
+    let mut excluded = 0;
+    for (event, span) in Parser::new_ext(source, crate::blocks::options()).into_offset_iter() {
+        match event {
+            Event::Start(Tag::Link { .. } | Tag::Image { .. } | Tag::CodeBlock(_)) => excluded += 1,
+            Event::End(TagEnd::Link | TagEnd::Image | TagEnd::CodeBlock) => excluded -= 1,
+            Event::Text(value)
+                if excluded == 0
+                    && span.start <= range.start
+                    && range.end <= span.end
+                    && value.as_ref() == &source[span] =>
+            {
+                let mut link = Link::new(0, range.clone(), source[range].to_owned(), false);
+                link.destination = destination.to_owned();
+                return Some(link.markdown());
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 pub struct Link {
     pub tab: u64,
     pub range: Range<usize>,
@@ -131,6 +167,31 @@ impl Link {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn paste_url_keeps_unicode_label_and_respects_literal_contexts() {
+        let url = "https://example.org/map_(north)";
+        let md = "**café**";
+        assert_eq!(
+            paste_over_selection(md, 2..7, url).unwrap(),
+            r"[café](https://example.org/map_\(north\))"
+        );
+        for (source, range) in [
+            ("`abc`", 1..4),
+            ("[abc](x)", 1..4),
+            ("abc", 0..0),
+            ("~~~\nabc\n~~~", 4..7),
+        ] {
+            assert!(paste_over_selection(source, range, url).is_none());
+        }
+        for paste in [
+            "javascript:alert(1)",
+            "two words",
+            "https://",
+            "https://a.test extra",
+        ] {
+            assert!(paste_over_selection("abc", 0..3, paste).is_none());
+        }
+    }
     #[test]
     fn plain_fields_round_trip_through_commonmark() {
         for image in [false, true] {

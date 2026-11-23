@@ -31,7 +31,7 @@ Open local files through **File → Open** or drag them into the window. Each do
 
 Choose **Text style → Heading 1** and type, or start a line with `# `. Write draws the heading in place. Select words and choose **Bold**, or type paired emphasis markers. **Style** controls appearance, text size, and page width. These preferences stay outside the document. Click a rendered task checkbox to update its Markdown checkmark.
 
-Select words and press **⌘K** (Ctrl+K on Windows and Linux) to add a URL. **Image** accepts alternative text and a local image path. The same forms open from `/link` and `/image`.
+In Write or Split, select words and paste an HTTP or HTTPS URL to link them. Select words and press **⌘K** (Ctrl+K on Windows and Linux) to add a URL. **Image** accepts alternative text and a local image path. The same forms open from `/link` and `/image`.
 
 Drop a PNG, JPEG, GIF, or WebP onto the editor to insert it at the caret. **⌘V** (Ctrl+V on Windows and Linux) also accepts clipboard images and copied image files. Folio saves pasted pixels as PNG and copies external images into a sibling folder such as `Field notes.assets/`. Images already inside the note’s directory are linked in place. For a new note, choose a save location when prompted. Keep the image folder with the Markdown file when sharing.
 

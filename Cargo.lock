@@ -1030,6 +1030,7 @@ dependencies = [
  "rfd",
  "serde_json",
  "tempfile",
+ "url",
 ]
 
 [[package]]
