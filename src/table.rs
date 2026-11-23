@@ -326,7 +326,17 @@ pub fn edit(
                         state.store(ui.ctx(), id);
                         ui.memory_mut(|m| m.request_focus(id));
                     }
-                    if ui.memory(|m| m.has_focus(id))
+                    let focused = ui.memory(|m| m.has_focus(id));
+                    if focused
+                        && (row > 0 || col > 0)
+                        && ui.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, egui::Key::Tab))
+                    {
+                        next_cell = Some(if col > 0 {
+                            (row, col - 1)
+                        } else {
+                            (row - 1, cols - 1)
+                        });
+                    } else if focused
                         && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Tab))
                     {
                         if col + 1 < cols {
@@ -552,6 +562,36 @@ mod tests {
             );
         }
         assert!(text.ends_with("| next |  |"), "{text}");
+    }
+    #[test]
+    fn shift_tab_moves_from_first_body_cell_to_last_header() {
+        let ctx = egui::Context::default();
+        let mut text = "| A | B |\n| --- | --- |\n| first | last |".to_owned();
+        let n = text.find("first").unwrap();
+        let tab = egui::Event::Key {
+            key: egui::Key::Tab,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::SHIFT,
+        };
+        for (focus, events) in [
+            (Some(n..n), vec![]),
+            (None, vec![tab]),
+            (None, vec![egui::Event::Text("next".into())]),
+        ] {
+            let _ = ctx.run(
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default()
+                        .show(ctx, |ui| edit(ui, &mut text, focus.clone(), 17.));
+                },
+            );
+        }
+        assert_eq!(text, "| A | nextB |\n| --- | --- |\n| first | last |");
     }
     #[test]
     fn visual_cell_edit_round_trips_through_a_markdown_file() {
