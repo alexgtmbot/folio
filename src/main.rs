@@ -1187,6 +1187,43 @@ impl Editor {
                             } else {
                                 ""
                             };
+                            if visual && has_focus && tab.selection.is_empty() {
+                                let at = tab.selection.start.saturating_sub(offset);
+                                let pair = ui.input(|i| {
+                                    if i.modifiers != Modifiers::NONE {
+                                        return None;
+                                    }
+                                    if i.key_pressed(Key::Backspace) {
+                                        at.checked_sub(2)
+                                    } else if i.key_pressed(Key::Delete) {
+                                        Some(at)
+                                    } else {
+                                        None
+                                    }
+                                });
+                                if let Some(pair) = pair {
+                                    let byte = byte_at(&contents, pair);
+                                    if contents[byte..].starts_with('\\')
+                                        && contents
+                                            .as_bytes()
+                                            .get(byte + 1)
+                                            .is_some_and(u8::is_ascii_punctuation)
+                                        && layouter(ui, &contents, ui.available_width())
+                                            .text()
+                                            .chars()
+                                            .nth(pair)
+                                            == Some('\u{200b}')
+                                    {
+                                        let mut state =
+                                            TextEdit::load_state(ctx, id).unwrap_or_default();
+                                        state.cursor.set_char_range(Some(CCursorRange::two(
+                                            CCursor::new(pair),
+                                            CCursor::new(pair + 2),
+                                        )));
+                                        state.store(ctx, id);
+                                    }
+                                }
+                            }
                             let output = TextEdit::multiline(&mut contents)
                                 .hint_text(hint)
                                 .font(egui::FontId::proportional(self.text_size))
@@ -2352,6 +2389,12 @@ mod slash_menu_tests {
     #[test]
     fn horizontal_editing_skips_hidden_escapes_but_keeps_code_literal() {
         for (source, arrows, expected) in [
+            (r"a\*b", vec![Key::ArrowLeft, Key::Backspace], "axb"),
+            (
+                r"a\*b",
+                vec![Key::ArrowLeft, Key::ArrowLeft, Key::Delete],
+                "axb",
+            ),
             (r"a\*b", vec![Key::ArrowLeft; 2], r"ax\*b"),
             (
                 r"a\*b",
