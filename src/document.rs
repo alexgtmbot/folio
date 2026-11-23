@@ -626,11 +626,31 @@ pub fn block_enter(text: &str, caret: usize) -> Option<(Range<usize>, String)> {
         let mut depth = 0;
         let mut prose = false;
         let mut delimiters = Vec::new();
+        let mut item = None;
         for (event, span) in Parser::new_ext(text, crate::blocks::options()).into_offset_iter() {
             if span.start > end {
                 break;
             }
             match event {
+                Event::Start(Tag::Item) if span.start < start && span.contains(&(end - 1)) => {
+                    item = Some(span.start);
+                    depth += 1;
+                }
+                Event::HardBreak if span.end == start && rest_of_line.is_empty() => {
+                    if let Some(marker) = item {
+                        let line_start = text[..marker].rfind('\n').map_or(0, |i| i + 1);
+                        let indent = &text[line_start..marker];
+                        let first = text[marker..].lines().next()?;
+                        let marker = first.split_whitespace().next()?;
+                        let next = next_marker(marker)?;
+                        let task = if is_task(first[marker.len()..].trim_start()) {
+                            "[ ] "
+                        } else {
+                            ""
+                        };
+                        return Some((caret..caret, format!("\n{indent}{next} {task}")));
+                    }
+                }
                 Event::Start(Tag::Paragraph) if depth == 0 && span.contains(&(end - 1)) => {
                     if rest_of_line.is_empty() {
                         return Some((caret..caret, "\n\n".into()));
@@ -754,13 +774,13 @@ pub fn block_enter(text: &str, caret: usize) -> Option<(Range<usize>, String)> {
             }
             None
         })?;
-    let is_task = |content: &str| {
+    fn is_task(content: &str) -> bool {
         ["[ ]", "[x]", "[X]"].iter().any(|marker| {
             content
                 .strip_prefix(marker)
                 .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
         })
-    };
+    }
     let task = is_task(content);
     let empty = if task { &content[3..] } else { content };
     if empty.trim().is_empty() && rest_of_line.trim().is_empty() {
@@ -813,6 +833,18 @@ mod tests {
             let events: Vec<_> =
                 pulldown_cmark::Parser::new_ext(&text, crate::blocks::options()).collect();
             assert!(events.contains(&pulldown_cmark::Event::HardBreak));
+        }
+    }
+
+    #[test]
+    fn enter_after_a_hard_break_continues_the_enclosing_list() {
+        for (source, next) in [
+            ("- Café  \n  notes", "\n- "),
+            ("10. [x] Café  \n    notes", "\n11. [ ] "),
+            ("- parent\n  + child  \n    notes", "\n  + "),
+        ] {
+            let end = source.chars().count();
+            assert_eq!(block_enter(source, end), Some((end..end, next.into())));
         }
     }
 
