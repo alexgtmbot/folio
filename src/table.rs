@@ -590,7 +590,7 @@ pub fn edit(
                                 || i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp)
                         })
                     {
-                        next_cell = Some((row.saturating_sub(1), col));
+                        next_cell = row.checked_sub(1).map(|previous| (previous, col));
                     } else if focused
                         && ui.input_mut(|i| {
                             i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)
@@ -1110,8 +1110,8 @@ mod tests {
     fn vertical_arrows_edit_the_same_column_without_growing_the_table() {
         let ctx = egui::Context::default();
         crate::configure_fonts(&ctx);
-        let mut text = "A | B\n--- | ---\none | two".to_owned();
-        let start = text.find('B').unwrap();
+        let mut text = "A | Café\n--- | ---\none | two".to_owned();
+        let start = text.find("Café").unwrap() + 2;
         let arrow = |key| egui::Event::Key {
             key,
             physical_key: None,
@@ -1121,6 +1121,8 @@ mod tests {
         };
         for (focus, events) in [
             (Some(start..start), vec![]),
+            (None, vec![arrow(egui::Key::ArrowUp)]),
+            (None, vec![egui::Event::Text("X".into())]),
             (None, vec![arrow(egui::Key::ArrowDown)]),
             (None, vec![arrow(egui::Key::ArrowDown)]),
             (None, vec![egui::Event::Text("body ".into())]),
@@ -1138,7 +1140,7 @@ mod tests {
                 },
             );
         }
-        assert_eq!(text, "A | header B\n--- | ---\none | body two");
+        assert_eq!(text, "A | header CaXfé\n--- | ---\none | body two");
     }
 
     #[test]
