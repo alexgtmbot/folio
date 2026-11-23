@@ -437,6 +437,17 @@ pub fn outline(text: &str) -> Vec<(usize, String)> {
     result
 }
 
+pub fn standalone_rule(text: &str) -> bool {
+    let line = text.trim_matches([' ', '\t', '\r', '\n']);
+    if !matches!(line.as_bytes().first(), Some(b'-' | b'*' | b'_')) || line.contains('\n') {
+        return false;
+    }
+    matches!(
+        pulldown_cmark::Parser::new(text).next(),
+        Some(pulldown_cmark::Event::Rule)
+    )
+}
+
 pub fn layout(
     text: &str,
     width: f32,
@@ -915,6 +926,18 @@ mod tests {
         let md = "> - one\n> - two\n>\n> > 1. nested";
         let job = layout(md, 480., Color32::WHITE, false, 0, 17.);
         assert_eq!(job.text, "| • one\n| • two\n|\n| | 1. nested");
+    }
+
+    #[test]
+    fn editable_divider_preserves_source_positions_and_setext_headings() {
+        for rule in ["---", "* * *", "___\n"] {
+            assert!(standalone_rule(rule));
+            let job = layout(rule, 480., Color32::WHITE, false, 0, 17.);
+            assert_eq!(job.text, rule);
+        }
+        for other in ["Title\n---", "- item", "    ---", "***bold***"] {
+            assert!(!standalone_rule(other));
+        }
     }
 
     #[test]

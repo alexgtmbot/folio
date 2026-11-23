@@ -949,7 +949,11 @@ impl Editor {
                                     f.layout_job(window::layout(
                                         s,
                                         w,
-                                        ui.visuals().text_color(),
+                                        if visual && window::standalone_rule(s) {
+                                            egui::Color32::TRANSPARENT
+                                        } else {
+                                            ui.visuals().text_color()
+                                        },
                                         tab.source,
                                         caret,
                                         self.text_size,
@@ -1151,6 +1155,14 @@ impl Editor {
                                 .desired_rows(if visual { 1 } else { 24 })
                                 .layouter(&mut layouter)
                                 .show(ui);
+                            if visual && window::standalone_rule(&contents) {
+                                let y = output.galley_pos.y + output.galley.rows[0].rect.center().y;
+                                ui.painter().hline(
+                                    output.response.rect.x_range(),
+                                    y,
+                                    ui.visuals().widgets.noninteractive.bg_stroke,
+                                );
+                            }
                             let (pressed, released, pointer) = ui.input(|i| {
                                 (
                                     i.pointer.primary_pressed(),

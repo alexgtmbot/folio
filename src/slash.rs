@@ -69,7 +69,7 @@ pub const COMMANDS: &[Command] = &[
     Command {
         name: "Divider",
         aliases: &["rule", "separator", "hr"],
-        template: "---\n◇",
+        template: "***\n◇",
     },
     Command {
         name: "Footnote",
@@ -237,6 +237,17 @@ pub fn insert(text: &mut String, range: Range<usize>, command: &Command) -> usiz
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn divider_after_prose_is_a_rule_and_keeps_the_caret_below_it() {
+        let mut text = "Notes\n/divider".to_owned();
+        let end = text.len();
+        let caret = insert(&mut text, 6..end, matching("divider").next().unwrap());
+        text.insert_str(byte_at(&text, caret), "Next");
+        let events: Vec<_> = pulldown_cmark::Parser::new(&text).collect();
+        assert!(events.contains(&pulldown_cmark::Event::Rule));
+        assert_eq!(text, "Notes\n***\nNext");
+    }
+
     #[test]
     fn quoted_commands_preserve_containers_on_every_inserted_line() {
         let mut text = "> > - /grid".to_owned();
