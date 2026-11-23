@@ -344,8 +344,10 @@ pub fn list_enter(text: &str, caret: usize) -> Option<(Range<usize>, String)> {
             }
             None
         })?;
-    let task =
-        content.starts_with("[ ] ") || content.starts_with("[x] ") || content.starts_with("[X] ");
+    let is_task = |content: &str| {
+        content.starts_with("[ ] ") || content.starts_with("[x] ") || content.starts_with("[X] ")
+    };
+    let task = is_task(content);
     let empty = if task { &content[4..] } else { content };
     if empty.trim().is_empty() && text[end..].split('\n').next()?.trim().is_empty() {
         let mut replacement = String::new();
@@ -353,8 +355,12 @@ pub fn list_enter(text: &str, caret: usize) -> Option<(Range<usize>, String)> {
             let line = text[..parent].rfind('\n').map_or(0, |i| i + 1);
             let prefix = &text[line..parent];
             if prefix.bytes().all(|b| b == b' ') {
-                let marker = text[parent..].split_whitespace().next()?;
+                let parent_line = text[parent..].lines().next()?;
+                let marker = parent_line.split_whitespace().next()?;
                 replacement = format!("{prefix}{} ", next_marker(marker)?);
+                if is_task(parent_line[marker.len()..].trim_start()) {
+                    replacement.push_str("[ ] ");
+                }
             }
         }
         return Some((caret - before.chars().count()..caret, replacement));
@@ -401,6 +407,8 @@ mod tests {
         for (source, child, sibling) in [
             ("- Hey\n  - Howdy\n\n    - ", "    - ", "  - "),
             ("10. café\n\n    - ", "    - ", "11. "),
+            ("- [X] Review\n\n  - ", "  - ", "- [ ] "),
+            ("1. [ ] Review\n\n   - ", "   - ", "2. [ ] "),
         ] {
             let caret = source.chars().count();
             assert_eq!(
