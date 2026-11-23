@@ -1404,13 +1404,6 @@ impl eframe::App for Editor {
         for path in mac_open::pending() {
             self.open(&path);
         }
-        if ctx.input(|i| i.viewport().close_requested())
-            && !self.quit
-            && self.tabs.iter().any(|t| t.doc.dirty)
-        {
-            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            self.finish_close(ctx, Closing::App);
-        }
         let shortcuts_enabled =
             self.closing.is_none() && self.error.is_none() && self.link.is_none();
         if shortcuts_enabled {
@@ -1464,6 +1457,13 @@ impl eframe::App for Editor {
             && self.link.is_none()
         {
             self.finish_document_shortcuts(ctx);
+        }
+        if ctx.input(|i| i.viewport().close_requested())
+            && !self.quit
+            && self.tabs.iter().any(|t| t.doc.dirty)
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.finish_close(ctx, Closing::App);
         }
         if self.closing.is_none() {
             for tab in &mut self.tabs {
@@ -1674,6 +1674,35 @@ mod drop_tests {
 #[cfg(test)]
 mod slash_menu_tests {
     use super::*;
+
+    #[test]
+    fn native_close_protects_an_edit_received_in_the_same_frame() {
+        let ctx = egui::Context::default();
+        configure_fonts(&ctx);
+        let mut app = Editor::with_documents([]);
+        let mut frame = eframe::Frame::_new_kittest();
+        let update = |app: &mut Editor, frame: &mut eframe::Frame, input| {
+            ctx.run(input, |ctx| eframe::App::update(app, ctx, frame))
+        };
+        let _ = update(&mut app, &mut frame, egui::RawInput::default());
+        let mut input = egui::RawInput::default();
+        input.events.push(egui::Event::Text("Last edit".into()));
+        input
+            .viewports
+            .get_mut(&egui::ViewportId::ROOT)
+            .unwrap()
+            .events
+            .push(egui::ViewportEvent::Close);
+        let output = update(&mut app, &mut frame, input);
+        assert_eq!(app.tabs[0].doc.text, "Last edit");
+        assert!(matches!(app.closing, Some(Closing::App)));
+        assert!(
+            output.viewport_output[&egui::ViewportId::ROOT]
+                .commands
+                .iter()
+                .any(|c| matches!(c, egui::ViewportCommand::CancelClose))
+        );
+    }
 
     #[test]
     fn close_shortcut_prompts_for_text_typed_in_the_same_frame() {
