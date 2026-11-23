@@ -104,9 +104,24 @@ impl Link {
 
     pub fn at_selection(tab: u64, source: &str, selection: Range<usize>, image: bool) -> Self {
         use pulldown_cmark::{Event, Parser, Tag};
+        let mut selection = selection;
         let mut events = Parser::new_ext(source, crate::blocks::options()).into_offset_iter();
         while let Some((event, span)) = events.next() {
             let (dest, title) = match event {
+                Event::Start(tag @ (Tag::Strong | Tag::Emphasis | Tag::Strikethrough))
+                    if !image && span == selection =>
+                {
+                    let width = match tag {
+                        Tag::Strong => 2,
+                        Tag::Strikethrough => source[span.clone()]
+                            .bytes()
+                            .take_while(|&b| b == b'~')
+                            .count(),
+                        _ => 1,
+                    };
+                    selection = span.start + width..span.end - width;
+                    continue;
+                }
                 Event::Start(Tag::Link {
                     dest_url, title, ..
                 }) if !image => (dest_url, title),
@@ -317,6 +332,22 @@ impl Link {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn linking_a_whole_emphasized_selection_keeps_its_formatting() {
+        for (source, expected) in [
+            ("**Café**", "**[Café](guide.md)**"),
+            ("_**Café**_", "_**[Café](guide.md)**_"),
+            ("~~Café~~", "~~[Café](guide.md)~~"),
+        ] {
+            let mut link = Link::at_selection(0, source, 0..source.len(), false);
+            assert_eq!(link.label, "Café");
+            link.destination = "guide.md".into();
+            let mut result = source.to_owned();
+            result.replace_range(link.range.clone(), &link.apply().unwrap());
+            assert_eq!(result, expected);
+        }
+    }
+
     #[test]
     fn editing_a_table_link_preserves_pipes_in_its_title() {
         use pulldown_cmark::{Event, Parser, Tag};
