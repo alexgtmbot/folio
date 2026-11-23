@@ -225,6 +225,14 @@ impl Editor {
             self.error = Some("No matching text.".into());
         }
     }
+    fn request_close_tab(&mut self) {
+        if self.tabs[self.active].doc.dirty {
+            self.closing = Some(Closing::Tab);
+        } else {
+            self.close_tab();
+        }
+    }
+
     fn close_tab(&mut self) {
         self.tabs.remove(self.active);
         if self.tabs.is_empty() {
@@ -378,13 +386,6 @@ impl Editor {
         if key(cmd, Key::O) {
             self.open_dialog();
         }
-        if key(cmd, Key::W) {
-            if self.tabs[self.active].doc.dirty {
-                self.closing = Some(Closing::Tab);
-            } else {
-                self.close_tab();
-            }
-        }
         if !self.tabs[self.active].edit_block
             && !self.tabs[self.active].source
             && self.find.is_none()
@@ -424,11 +425,14 @@ impl Editor {
             }
         }
     }
-    fn save_shortcut(&mut self, ctx: &egui::Context) {
+    fn finish_document_shortcuts(&mut self, ctx: &egui::Context) {
         let save_as =
             ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::S));
         if save_as || ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::S)) {
             self.save(save_as);
+        }
+        if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::W)) {
+            self.request_close_tab();
         }
     }
     fn insert_table(&mut self) {
@@ -480,11 +484,7 @@ impl Editor {
                                     self.save(action == 3);
                                 }
                                 _ => {
-                                    if self.tabs[self.active].doc.dirty {
-                                        self.closing = Some(Closing::Tab)
-                                    } else {
-                                        self.close_tab()
-                                    }
+                                    self.request_close_tab();
                                 }
                             }
                         }
@@ -1463,7 +1463,7 @@ impl eframe::App for Editor {
             && self.error.is_none()
             && self.link.is_none()
         {
-            self.save_shortcut(ctx);
+            self.finish_document_shortcuts(ctx);
         }
         if self.closing.is_none() {
             for tab in &mut self.tabs {
@@ -1676,6 +1676,42 @@ mod slash_menu_tests {
     use super::*;
 
     #[test]
+    fn close_shortcut_prompts_for_text_typed_in_the_same_frame() {
+        let ctx = egui::Context::default();
+        configure_fonts(&ctx);
+        let mut app = Editor::with_documents([]);
+        let original = app.tabs[0].id;
+        for events in [
+            vec![],
+            vec![
+                egui::Event::Text("Draft".into()),
+                egui::Event::Key {
+                    key: Key::W,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: Modifiers::COMMAND,
+                },
+            ],
+        ] {
+            let _ = ctx.run(
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    app.shortcuts(ctx);
+                    app.editor(ctx);
+                    app.finish_document_shortcuts(ctx);
+                },
+            );
+        }
+        assert_eq!(app.tabs[0].id, original);
+        assert_eq!(app.tabs[0].doc.text, "Draft");
+        assert!(matches!(app.closing, Some(Closing::Tab)));
+    }
+
+    #[test]
     fn keyboard_authoring_saves_a_heading_and_list_as_markdown() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("Authoring.md");
@@ -1712,7 +1748,7 @@ mod slash_menu_tests {
                 |ctx| {
                     app.shortcuts(ctx);
                     app.editor(ctx);
-                    app.save_shortcut(ctx);
+                    app.finish_document_shortcuts(ctx);
                 },
             );
         }
