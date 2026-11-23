@@ -1658,6 +1658,49 @@ mod slash_menu_tests {
     use super::*;
 
     #[test]
+    fn typing_a_nested_list_keeps_the_parent_at_body_size() {
+        let ctx = egui::Context::default();
+        configure_fonts(&ctx);
+        let mut app = Editor::with_documents([]);
+        let key = |key| egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        };
+        for event in [
+            None,
+            Some(egui::Event::Text("- Hey".into())),
+            Some(key(Key::Enter)),
+            Some(key(Key::Tab)),
+            None,
+            Some(egui::Event::Text("Howdy".into())),
+            Some(key(Key::Enter)),
+            Some(key(Key::Tab)),
+            None,
+        ] {
+            let _ = ctx.run(
+                egui::RawInput {
+                    events: event.into_iter().collect(),
+                    ..Default::default()
+                },
+                |ctx| app.editor(ctx),
+            );
+        }
+        let doc = &app.tabs[app.active].doc.text;
+        assert_eq!(doc, "- Hey\n\n  - Howdy\n\n    - ");
+        let layout = window::layout(doc, 480., egui::Color32::WHITE, false, 0, 17.);
+        let at = layout.text.find("Howdy").unwrap();
+        let section = layout
+            .sections
+            .iter()
+            .find(|s| s.byte_range.contains(&at))
+            .unwrap();
+        assert_eq!(section.format.font_id.size, 17.);
+    }
+
+    #[test]
     fn tab_and_shift_tab_change_the_visual_list_nesting() {
         let ctx = egui::Context::default();
         configure_fonts(&ctx);
