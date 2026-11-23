@@ -222,7 +222,7 @@ pub fn insert(text: &mut String, mut range: Range<usize>, command: &Command) -> 
     {
         range.start -= heading.len();
     }
-    let footnote;
+    let generated;
     let template = if command.name == "Footnote" {
         // Reserve unresolved references too, so inserting a note cannot retarget them.
         let used: std::collections::HashSet<&str> = text
@@ -236,8 +236,22 @@ pub fn insert(text: &mut String, mut range: Range<usize>, command: &Command) -> 
         let number = (1usize..)
             .find(|n| !used.contains(n.to_string().as_str()))
             .unwrap();
-        footnote = command.template.replace("[^1]", &format!("[^{number}]"));
-        &footnote
+        generated = command.template.replace("[^1]", &format!("[^{number}]"));
+        &generated
+    } else if command.name == "Reference link" {
+        // A new definition would also activate any matching unresolved shortcut links.
+        let used: std::collections::HashSet<_> = text
+            .split('[')
+            .skip(1)
+            .filter_map(|part| part.split_once(']'))
+            .map(|(label, _)| label.trim().to_ascii_lowercase())
+            .collect();
+        let label = std::iter::once("ref".to_owned())
+            .chain((2usize..).map(|n| format!("ref{n}")))
+            .find(|label| !used.contains(label))
+            .unwrap();
+        generated = command.template.replace("[ref]", &format!("[{label}]"));
+        &generated
     } else {
         command.template
     };
@@ -251,6 +265,24 @@ pub fn insert(text: &mut String, mut range: Range<usize>, command: &Command) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn reference_commands_preserve_existing_destinations_and_unresolved_labels() {
+        let mut text = "[Earlier][REF] and [ref2]\n\n[REF]: old.md\n\n/ref".to_owned();
+        let end = text.len();
+        let caret = insert(&mut text, end - 4..end, matching("ref").next().unwrap());
+        text.insert_str(byte_at(&text, caret), "New");
+        assert!(text.ends_with("[New][ref3]\n\n[ref3]: https://"));
+        let links: Vec<_> = pulldown_cmark::Parser::new(&text)
+            .filter_map(|event| match event {
+                pulldown_cmark::Event::Start(pulldown_cmark::Tag::Link { dest_url, .. }) => {
+                    Some(dest_url.into_string())
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(links, ["old.md", "https://"]);
+    }
+
     #[test]
     fn slash_can_restyle_an_empty_heading_without_stacking_markers() {
         let mut text = "🦀\n\n> ## /h3".to_owned();
