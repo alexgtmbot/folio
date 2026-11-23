@@ -23,21 +23,26 @@ jobs:
       - run: rustup update stable --no-self-update
       - run: rustup default stable
       - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-0 libwayland-dev libgl1-mesa-dev libx11-dev libxcb1-dev libxcursor1 libxi6 libxrandr2 xvfb xdotool xclip desktop-file-utils
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-0 libwayland-dev libgl1-mesa-dev libx11-dev libxcb1-dev libxcursor1 libxi6 libxrandr2 xvfb xdotool xclip desktop-file-utils libglib2.0-bin
       - run: cargo fmt --check
       - run: cargo test --locked
       - run: cargo build --release --locked
       - run: cargo run --release --locked -- --self-test
       - if: runner.os == 'Linux'
-        name: Edit and save in an X11 window
+        name: Open Markdown files from the desktop launcher and edit in X11
         run: |
           printf 'Original text' > "$RUNNER_TEMP/Window check.md"
           xvfb-run -a bash -eu -o pipefail -c '
-            target/release/folio "$RUNNER_TEMP/Window check.md" &
-            pid=$!
+            export PATH="$PWD/target/release:$PATH"
+            touch "$RUNNER_TEMP/Second note.md"
+            gio launch assets/local.folio.editor.desktop "$RUNNER_TEMP/Window check.md" "$RUNNER_TEMP/Second note.md"
+            window=$(timeout 30 xdotool search --sync --name "Second note[.]md" | head -1)
+            pid=$(xdotool getwindowpid "$window")
             trap "kill $pid || true" EXIT
-            window=$(timeout 30 xdotool search --sync --name "Window check.md" | head -1)
             xdotool windowfocus --sync "$window"
+            xdotool key ctrl+w
+            first=$(timeout 30 xdotool search --sync --pid "$pid" --all --name "Window check[.]md" | head -1)
+            test "$first" = "$window"
             xdotool mousemove --window "$window" 300 65 click 1
             xdotool key ctrl+a
             xdotool type --delay 50 "Portable"
