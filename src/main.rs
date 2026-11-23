@@ -1032,10 +1032,12 @@ impl Editor {
                             {
                                 let query = tab.doc.text[r.start + 1..r.end].to_lowercase();
                                 let count = slash::matching(&query).count();
-                                if count > 0
-                                    && tab.dismissed.as_ref() != Some(&(r.start, query.to_owned()))
-                                {
+                                if tab.dismissed.as_ref() != Some(&(r.start, query)) {
                                     ui.input_mut(|i| {
+                                        escape = i.consume_key(Modifiers::NONE, Key::Escape);
+                                        if count == 0 {
+                                            return;
+                                        }
                                         if i.consume_key(Modifiers::NONE, Key::ArrowDown) {
                                             moved = true;
                                             tab.slash_index = (tab.slash_index + 1) % count;
@@ -1048,7 +1050,6 @@ impl Editor {
                                         }
                                         choose = i.consume_key(Modifiers::NONE, Key::Enter)
                                             || i.consume_key(Modifiers::NONE, Key::Tab);
-                                        escape = i.consume_key(Modifiers::NONE, Key::Escape);
                                     });
                                 }
                             }
@@ -1345,97 +1346,99 @@ impl Editor {
                                 }
                                 if tab.dismissed.as_ref() != Some(&(r.start, query.clone())) {
                                     let matches: Vec<_> = slash::matching(&query).collect();
-                                    if !matches.is_empty() {
-                                        ui.memory_mut(|m| {
-                                            m.set_focus_lock_filter(
-                                                id,
-                                                egui::EventFilter {
-                                                    escape: true,
-                                                    tab: true,
-                                                    horizontal_arrows: true,
-                                                    vertical_arrows: true,
-                                                },
-                                            )
-                                        });
-                                        tab.slash_index = tab.slash_index.min(matches.len() - 1);
-                                        let caret = output
-                                            .galley
-                                            .from_ccursor(CCursor::new(tab.selection.end - offset));
-                                        let rect = output
-                                            .galley
-                                            .pos_from_cursor(&caret)
-                                            .translate(output.galley_pos.to_vec2());
-                                        let above = ctx.screen_rect().bottom() - rect.bottom()
-                                            < 230.
-                                            && rect.top() > 230.;
-                                        let mut picked = choose.then_some(tab.slash_index);
-                                        egui::Area::new(id.with("slash"))
-                                            .order(egui::Order::Foreground)
-                                            .default_size(egui::vec2(248., 300.))
-                                            .pivot(if above {
-                                                egui::Align2::LEFT_BOTTOM
-                                            } else {
-                                                egui::Align2::LEFT_TOP
-                                            })
-                                            .fixed_pos(if above {
-                                                rect.left_top()
-                                            } else {
-                                                rect.left_bottom()
-                                            })
-                                            .show(ctx, |ui| {
-                                                egui::Frame::popup(ui.style())
-                                                    .corner_radius(10)
-                                                    .inner_margin(8)
-                                                    .show(ui, |ui| {
-                                                        ui.set_width(232.);
-                                                        ui.spacing_mut().interact_size.y = 28.;
-                                                        ui.spacing_mut().item_spacing.y = 2.;
-                                                        egui::ScrollArea::vertical()
-                                                            .max_height(258.)
-                                                            .show(ui, |ui| {
-                                                                for (i, c) in
-                                                                    matches.iter().enumerate()
-                                                                {
-                                                                    let row = ui.add_sized(
-                                                                        [ui.available_width(), 28.],
-                                                                        egui::SelectableLabel::new(
-                                                                            i == tab.slash_index,
-                                                                            c.name,
-                                                                        ),
-                                                                    );
-                                                                    if moved && i == tab.slash_index
-                                                                    {
-                                                                        row.scroll_to_me(None);
-                                                                    }
-                                                                    if row.clicked() {
-                                                                        picked = Some(i);
-                                                                    }
+
+                                    ui.memory_mut(|m| {
+                                        m.set_focus_lock_filter(
+                                            id,
+                                            egui::EventFilter {
+                                                escape: true,
+                                                tab: !matches.is_empty(),
+                                                horizontal_arrows: true,
+                                                vertical_arrows: true,
+                                            },
+                                        )
+                                    });
+                                    tab.slash_index =
+                                        tab.slash_index.min(matches.len().saturating_sub(1));
+                                    let caret = output
+                                        .galley
+                                        .from_ccursor(CCursor::new(tab.selection.end - offset));
+                                    let rect = output
+                                        .galley
+                                        .pos_from_cursor(&caret)
+                                        .translate(output.galley_pos.to_vec2());
+                                    let above = ctx.screen_rect().bottom() - rect.bottom() < 230.
+                                        && rect.top() > 230.;
+                                    let mut picked =
+                                        (choose && !matches.is_empty()).then_some(tab.slash_index);
+                                    egui::Area::new(id.with("slash"))
+                                        .order(egui::Order::Foreground)
+                                        .default_size(egui::vec2(248., 300.))
+                                        .pivot(if above {
+                                            egui::Align2::LEFT_BOTTOM
+                                        } else {
+                                            egui::Align2::LEFT_TOP
+                                        })
+                                        .fixed_pos(if above {
+                                            rect.left_top()
+                                        } else {
+                                            rect.left_bottom()
+                                        })
+                                        .show(ctx, |ui| {
+                                            egui::Frame::popup(ui.style())
+                                                .corner_radius(10)
+                                                .inner_margin(8)
+                                                .show(ui, |ui| {
+                                                    ui.set_width(232.);
+                                                    if matches.is_empty() {
+                                                        ui.weak("No matching commands");
+                                                        return;
+                                                    }
+                                                    ui.spacing_mut().interact_size.y = 28.;
+                                                    ui.spacing_mut().item_spacing.y = 2.;
+                                                    egui::ScrollArea::vertical()
+                                                        .max_height(258.)
+                                                        .show(ui, |ui| {
+                                                            for (i, c) in matches.iter().enumerate()
+                                                            {
+                                                                let row = ui.add_sized(
+                                                                    [ui.available_width(), 28.],
+                                                                    egui::SelectableLabel::new(
+                                                                        i == tab.slash_index,
+                                                                        c.name,
+                                                                    ),
+                                                                );
+                                                                if moved && i == tab.slash_index {
+                                                                    row.scroll_to_me(None);
                                                                 }
-                                                            });
-                                                    });
-                                            });
-                                        if let Some(i) = picked {
-                                            if matches!(matches[i].name, "Link" | "Image") {
-                                                self.link = Some(link::Link::new(
-                                                    tab.id,
-                                                    r,
-                                                    String::new(),
-                                                    matches[i].name == "Image",
-                                                ));
-                                                ctx.request_repaint();
-                                                return;
-                                            }
-                                            let pos =
-                                                slash::insert(&mut tab.doc.text, r, matches[i]);
-                                            self.jump = Some(pos..pos);
-                                            tab.selection = pos..pos;
-                                            tab.doc.dirty = true;
-                                            tab.edited = Some(Instant::now());
+                                                                if row.clicked() {
+                                                                    picked = Some(i);
+                                                                }
+                                                            }
+                                                        });
+                                                });
+                                        });
+                                    if let Some(i) = picked {
+                                        if matches!(matches[i].name, "Link" | "Image") {
+                                            self.link = Some(link::Link::new(
+                                                tab.id,
+                                                r,
+                                                String::new(),
+                                                matches[i].name == "Image",
+                                            ));
                                             ctx.request_repaint();
+                                            return;
                                         }
+                                        let pos = slash::insert(&mut tab.doc.text, r, matches[i]);
+                                        self.jump = Some(pos..pos);
+                                        tab.selection = pos..pos;
+                                        tab.doc.dirty = true;
+                                        tab.edited = Some(Instant::now());
+                                        ctx.request_repaint();
                                     }
                                 }
                             }
+
                             if output.response.changed() {
                                 tab.doc.dirty = true;
                                 tab.edited = Some(Instant::now());
@@ -2372,7 +2375,9 @@ mod slash_menu_tests {
         frame(&mut app, vec![]);
         frame(&mut app, vec![egui::Event::Text("/nomatches".into())]);
         frame(&mut app, vec![key(Key::Escape)]);
-        assert!(!app.tabs[app.active].edit_block);
+        assert!(app.tabs[app.active].edit_block);
         assert_eq!(app.tabs[app.active].doc.text, "/nomatches");
+        frame(&mut app, vec![egui::Event::Text(" here".into())]);
+        assert_eq!(app.tabs[app.active].doc.text, "/nomatches here");
     }
 }
