@@ -2,6 +2,29 @@
 use eframe::egui;
 use std::ops::Range;
 
+fn narrow_to_label(
+    source: &str,
+    event: &pulldown_cmark::Event<'_>,
+    span: &Range<usize>,
+    selection: &mut Range<usize>,
+) -> bool {
+    use pulldown_cmark::{Event, Tag};
+    if span != selection {
+        return false;
+    }
+    let width = match event {
+        Event::Start(Tag::Strong) => 2,
+        Event::Start(Tag::Emphasis) => 1,
+        Event::Start(Tag::Strikethrough) => source[span.clone()]
+            .bytes()
+            .take_while(|&b| b == b'~')
+            .count(),
+        _ => return false,
+    };
+    *selection = span.start + width..span.end - width;
+    true
+}
+
 /// Link a selection in ordinary prose; other paste contexts keep their normal editor behavior.
 pub fn paste_over_selection(source: &str, range: Range<usize>, clipboard: &str) -> Option<String> {
     use pulldown_cmark::{Event, Parser, Tag, TagEnd};
@@ -17,20 +40,34 @@ pub fn paste_over_selection(source: &str, range: Range<usize>, clipboard: &str) 
     if !matches!(url.scheme(), "http" | "https") || url.host().is_none() {
         return None;
     }
+    let mut selection = range.clone();
     let mut excluded = 0;
     for (event, span) in Parser::new_ext(source, crate::blocks::options()).into_offset_iter() {
+        if excluded == 0 && narrow_to_label(source, &event, &span, &mut selection) {
+            continue;
+        }
         match event {
             Event::Start(Tag::Link { .. } | Tag::Image { .. } | Tag::CodeBlock(_)) => excluded += 1,
             Event::End(TagEnd::Link | TagEnd::Image | TagEnd::CodeBlock) => excluded -= 1,
             Event::Text(value)
                 if excluded == 0
-                    && span.start <= range.start
-                    && range.end <= span.end
+                    && span.start <= selection.start
+                    && selection.end <= span.end
                     && value.as_ref() == &source[span] =>
             {
-                let mut link = Link::new(0, range.clone(), source[range].to_owned(), false);
+                let mut link = Link::new(
+                    0,
+                    selection.clone(),
+                    source[selection.clone()].to_owned(),
+                    false,
+                );
                 link.destination = destination.to_owned();
-                return Some(link.markdown());
+                return Some(format!(
+                    "{}{}{}",
+                    &source[range.start..selection.start],
+                    link.markdown(),
+                    &source[selection.end..range.end]
+                ));
             }
             _ => {}
         }
@@ -107,21 +144,10 @@ impl Link {
         let mut selection = selection;
         let mut events = Parser::new_ext(source, crate::blocks::options()).into_offset_iter();
         while let Some((event, span)) = events.next() {
+            if !image && narrow_to_label(source, &event, &span, &mut selection) {
+                continue;
+            }
             let (dest, title) = match event {
-                Event::Start(tag @ (Tag::Strong | Tag::Emphasis | Tag::Strikethrough))
-                    if !image && span == selection =>
-                {
-                    let width = match tag {
-                        Tag::Strong => 2,
-                        Tag::Strikethrough => source[span.clone()]
-                            .bytes()
-                            .take_while(|&b| b == b'~')
-                            .count(),
-                        _ => 1,
-                    };
-                    selection = span.start + width..span.end - width;
-                    continue;
-                }
                 Event::Start(Tag::Link {
                     dest_url, title, ..
                 }) if !image => (dest_url, title),
@@ -332,6 +358,22 @@ impl Link {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn pasting_a_url_over_a_whole_styled_phrase_keeps_its_label_and_marks() {
+        let source = "Go _**Café**_ now";
+        let start = source.find('_').unwrap();
+        let end = source.rfind('_').unwrap() + 1;
+        assert_eq!(
+            paste_over_selection(source, start..end, "https://example.org").as_deref(),
+            Some("_**[Café](https://example.org)**_")
+        );
+        let source = "[**Café**](old.md)";
+        assert!(
+            paste_over_selection(source, 1..source.find(']').unwrap(), "https://example.org")
+                .is_none()
+        );
+    }
+
     #[test]
     fn linking_a_whole_emphasized_selection_keeps_its_formatting() {
         for (source, expected) in [
