@@ -249,14 +249,17 @@ pub fn nest_item(text: &mut String, caret: usize, lift: bool) -> Option<usize> {
     let mut replacement = String::new();
     let mut at = start;
     let mut new_byte = byte;
-    // A nested ordered list starting above one cannot interrupt a paragraph.
+    // Empty items and ordered lists starting above one cannot interrupt a paragraph.
     let digits = text[item.start..]
         .bytes()
         .take_while(u8::is_ascii_digit)
         .count();
+    let marker_line = text[item.start..].lines().next()?.trim_end();
+    let empty_item = marker_line.len() == digits + 1;
+    let ordered_continuation =
+        digits > 0 && text[item.start..item.start + digits].parse::<u32>().ok() != Some(1);
     if !lift
-        && digits > 0
-        && text[item.start..item.start + digits].parse::<u32>().ok() != Some(1)
+        && (empty_item || ordered_continuation)
         && text[..start]
             .lines()
             .next_back()
@@ -353,6 +356,19 @@ mod tests {
         assert!(nest_item(&mut md, 0, false).is_none());
         assert!(nest_item(&mut md, pos, true).is_none());
     }
+    #[test]
+    fn nesting_empty_bullet_keeps_parent_as_prose() {
+        let mut md = String::from("- Hey\n  - Howdy\n  - ");
+        let caret = md.chars().count();
+        let moved = nest_item(&mut md, caret, false).unwrap();
+        assert_eq!(md, "- Hey\n  - Howdy\n\n    - ");
+        assert_eq!(moved, md.chars().count());
+        let mut html = String::new();
+        pulldown_cmark::html::push_html(&mut html, pulldown_cmark::Parser::new(&md));
+        assert_eq!(html.matches("<li>").count(), 3);
+        assert!(html.contains("<p>Howdy</p>"));
+    }
+
     #[test]
     fn enter_handles_list_types_and_exits_empty_items() {
         for (line, next) in [
