@@ -362,7 +362,14 @@ impl Editor {
                 }
             }
         }
-        if key(cmd, Key::K) {
+        if key(cmd | Modifiers::ALT, Key::K) {
+            let tab = &self.tabs[self.active];
+            if let Some(url) =
+                link::web_link_at(&tab.doc.text, byte_at(&tab.doc.text, tab.selection.start))
+            {
+                ctx.open_url(egui::OpenUrl::new_tab(url));
+            }
+        } else if key(cmd, Key::K) {
             self.insert_link(false);
         }
         if key(shifted, Key::S) {

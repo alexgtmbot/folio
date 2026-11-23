@@ -45,6 +45,7 @@ In Write mode, type **/** at the beginning of a line and filter by name or alias
 
 | Command | Mac | Windows / Linux |
 |---|---|---|
+| Follow web link at caret | ⌥⌘K | Ctrl+Alt+K |
 | Open / Save | ⌘O / ⌘S | Ctrl+O / Ctrl+S |
 | Undo / Redo | ⌘Z / ⇧⌘Z | Ctrl+Z / Ctrl+Shift+Z |
 | Nest / outdent current list item | Tab / Shift+Tab | Tab / Shift+Tab |

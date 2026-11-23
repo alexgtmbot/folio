@@ -38,6 +38,23 @@ pub fn paste_over_selection(source: &str, range: Range<usize>, clipboard: &str) 
     None
 }
 
+/// Resolve a web link under the caret, including reference-style links.
+pub fn web_link_at(source: &str, byte: usize) -> Option<String> {
+    use pulldown_cmark::{Event, Parser, Tag};
+    Parser::new_ext(source, crate::blocks::options())
+        .into_offset_iter()
+        .find_map(|(event, span)| {
+            let Event::Start(Tag::Link { dest_url, .. }) = event else {
+                return None;
+            };
+            if !span.contains(&byte) {
+                return None;
+            }
+            let url = url::Url::parse(&dest_url).ok()?;
+            (matches!(url.scheme(), "https" | "http") && url.host().is_some()).then(|| url.into())
+        })
+}
+
 pub struct Link {
     pub tab: u64,
     pub range: Range<usize>,
@@ -167,6 +184,17 @@ impl Link {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn follows_web_references_under_the_caret_only() {
+        let source = "🦀 [docs][ref] and `[literal](https://example.org)`\n\n[ref]: https://example.org/docs";
+        assert_eq!(
+            web_link_at(source, source.find("docs").unwrap()).as_deref(),
+            Some("https://example.org/docs")
+        );
+        assert!(web_link_at(source, source.find("literal").unwrap()).is_none());
+        assert!(web_link_at("[local](file:///tmp/note)", 2).is_none());
+    }
+
     #[test]
     fn paste_url_keeps_unicode_label_and_respects_literal_contexts() {
         let url = "https://example.org/map_(north)";
