@@ -250,9 +250,12 @@ fn compact_list(source: &str, width: f32, color: Color32, size: f32) -> Option<L
         return None;
     };
     let mut items = 0;
+    let mut nested_bullets = false;
     for (event, _) in events {
         match event {
             Event::Start(Tag::Item) => items += 1,
+            Event::Start(Tag::List(None)) if ordered.is_none() => nested_bullets = true,
+            Event::Start(Tag::Paragraph) if ordered.is_none() => {}
             Event::Text(_)
             | Event::Code(_)
             | Event::Start(Tag::Emphasis | Tag::Strong | Tag::Strikethrough)
@@ -260,7 +263,11 @@ fn compact_list(source: &str, width: f32, color: Color32, size: f32) -> Option<L
             _ => return None,
         }
     }
-    if items != source.lines().count() {
+    let item_lines = source
+        .lines()
+        .filter(|line| !nested_bullets || !line.trim().is_empty())
+        .count();
+    if items != item_lines {
         return None;
     }
     let mut job = layout(source, width, color, false, 0, size);
@@ -646,6 +653,21 @@ mod tests {
             assert!(compact_list("- [ ] interactive", 400., Color32::WHITE, 17.).is_none());
         });
     }
+    #[test]
+    fn nested_bullet_preview_matches_editable_rows() {
+        let md = "- Hey\n\n  - Howdy\n\n    - ";
+        let preview = compact_list(md, 400., Color32::WHITE, 17.).unwrap();
+        let edit = layout(md, 400., Color32::WHITE, false, 0, 17.);
+        assert_eq!(preview.text, edit.text);
+        assert_eq!(preview.text.lines().count(), 3);
+        for interactive in [
+            "- Hey\n  - [ ] Task",
+            "- Hey\n  - [Link](https://example.org)",
+        ] {
+            assert!(compact_list(interactive, 400., Color32::WHITE, 17.).is_none());
+        }
+    }
+
     #[test]
     fn list_continuations_keep_their_lines() {
         let source = "- Tell me about your day\ntest\ntest\n- next\n\n```\na\nb\n```";
