@@ -242,15 +242,16 @@ fn clicked_byte(ui: &egui::Ui, first: usize, pointer: egui::Pos2, source: &str) 
     })
 }
 
-// Keep nested prose quotes in the same layout when the caret leaves the block.
-fn nested_quote(source: &str, width: f32, color: Color32, size: f32) -> Option<LayoutJob> {
+// Keep typographic prose in the editing layout when the caret leaves the block.
+fn styled_prose(source: &str, width: f32, color: Color32, size: f32) -> Option<LayoutJob> {
     use pulldown_cmark::{Event, Parser, Tag, TagEnd};
     let source = source.trim_end_matches(['\r', '\n']);
-    if !source.trim_start().starts_with('>') || source.contains('[') {
+    if source.contains('[') {
         return None;
     }
     let mut depth = 0;
     let mut nested = false;
+    let mut strong = false;
     for event in Parser::new_ext(source, crate::blocks::options()) {
         match event {
             Event::Start(Tag::BlockQuote(None)) => {
@@ -258,7 +259,8 @@ fn nested_quote(source: &str, width: f32, color: Color32, size: f32) -> Option<L
                 nested |= depth > 1;
             }
             Event::End(TagEnd::BlockQuote(_)) => depth -= 1,
-            Event::Start(Tag::Paragraph | Tag::Strong | Tag::Emphasis | Tag::Strikethrough)
+            Event::Start(Tag::Strong) => strong = true,
+            Event::Start(Tag::Paragraph | Tag::Emphasis | Tag::Strikethrough)
             | Event::End(_)
             | Event::Text(_)
             | Event::SoftBreak
@@ -267,7 +269,8 @@ fn nested_quote(source: &str, width: f32, color: Color32, size: f32) -> Option<L
             _ => return None,
         }
     }
-    nested.then(|| layout(source, width, color, false, 0, size))
+    (nested || (strong && !source.trim_start().starts_with('>')))
+        .then(|| layout(source, width, color, false, 0, size))
 }
 
 // Lay out single-line text items together so markers and content share one
@@ -369,18 +372,26 @@ pub fn editable_block(
     let width = ui.available_width();
     let color = ui.visuals().text_color();
     if let Some(job) =
-        nested_quote(block, width, color, size).or_else(|| compact_list(block, width, color, size))
+        styled_prose(block, width, color, size).or_else(|| compact_list(block, width, color, size))
     {
         let galley = ui.fonts(|f| f.layout_job(job));
         let (rect, response) = ui.allocate_exact_size(galley.size(), egui::Sense::click());
         ui.painter()
             .galley(rect.min, galley.clone(), ui.visuals().text_color());
         ui.add_space(size * 0.35);
-        if response.clicked()
-            && let Some(pos) = response.interact_pointer_pos()
+        if let Some(p) = pointer
+            && response.rect.contains(p)
+            && ui.clip_rect().contains(p)
         {
-            let cursor = galley.cursor_from_pos(pos - rect.min).ccursor.index;
-            return BlockAction::Edit(r.start + crate::document::byte_at(block, cursor));
+            let cursor = galley.cursor_from_pos(p - rect.min).ccursor.index;
+            let at = r.start + crate::document::byte_at(block, cursor);
+            return if ui.input(|i| i.pointer.primary_clicked()) {
+                BlockAction::Edit(at)
+            } else if ui.input(|i| i.pointer.primary_pressed()) {
+                BlockAction::DragStart(at)
+            } else {
+                BlockAction::DragEnd(at)
+            };
         }
         return BlockAction::None;
     }
@@ -985,6 +996,24 @@ mod tests {
     }
 
     #[test]
+    fn inactive_prose_preserves_real_bold_weight_and_interactive_links() {
+        let job = styled_prose(
+            "Visit **Marin Headlands** today.",
+            500.,
+            Color32::WHITE,
+            17.,
+        )
+        .unwrap();
+        assert!(
+            job.sections
+                .iter()
+                .any(|s| &job.text[s.byte_range.clone()] == "Marin Headlands"
+                    && s.format.font_id.family == egui::FontFamily::Name("Bold".into()))
+        );
+        assert!(styled_prose("**Visit** [Marin](guide.md)", 500., Color32::WHITE, 17.).is_none());
+    }
+
+    #[test]
     fn typed_heading_and_emphasis_hide_delimiters_in_write() {
         let source = "# My **notes**";
         let job = layout(source, 500., Color32::WHITE, false, 0, 17.);
@@ -1011,14 +1040,14 @@ mod tests {
     #[test]
     fn nested_quote_preview_matches_editing_and_preserves_interactive_rendering() {
         let source = "> first\n> > **second** > literal";
-        let preview = nested_quote(source, 480., Color32::WHITE, 17.).unwrap();
+        let preview = styled_prose(source, 480., Color32::WHITE, 17.).unwrap();
         assert_eq!(preview, layout(source, 480., Color32::WHITE, false, 0, 17.));
         for source in [
             "> one level",
             "> outer\n> > [link][ref]",
             "> outer\n> > - [ ] task",
         ] {
-            assert!(nested_quote(source, 480., Color32::WHITE, 17.).is_none());
+            assert!(styled_prose(source, 480., Color32::WHITE, 17.).is_none());
         }
     }
 
