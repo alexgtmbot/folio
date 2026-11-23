@@ -35,9 +35,12 @@ impl FileFormat {
 }
 
 pub fn block_prefix(line: &str) -> usize {
-    let hashes = line.bytes().take_while(|&c| c == b'#').count();
-    let after_hashes = &line[hashes..];
-    if (1..=6).contains(&hashes)
+    let body = line.trim_start_matches(' ');
+    let indent = line.len() - body.len();
+    let hashes = body.bytes().take_while(|&c| c == b'#').count();
+    let after_hashes = &body[hashes..];
+    if indent <= 3
+        && (1..=6).contains(&hashes)
         && (after_hashes.is_empty() || after_hashes.starts_with([' ', '\t', '\r', '\n']))
     {
         line.len() - after_hashes.trim_start_matches([' ', '\t']).len()
@@ -93,7 +96,8 @@ mod tests {
             ("- item", 2),
             ("* item", 2),
             ("> quote", 2),
-            ("  # code", 0),
+            (" # heading", 3),
+            ("    # code", 0),
         ] {
             assert_eq!(block_prefix(s), n);
         }

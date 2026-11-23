@@ -374,7 +374,7 @@ pub fn format(text: &mut String, selection: Range<usize>, cmd: Format) -> Range<
             };
             let line_start = text[..pos].chars().count();
             let mut selection = selection;
-            if prefix.is_empty() && n > 0 && line.starts_with('#') {
+            if prefix.is_empty() && n > 0 && line.trim_start_matches(' ').starts_with('#') {
                 let heading = line.lines().next().unwrap_or_default();
                 let trimmed = heading.trim_end_matches([' ', '\t']);
                 let before_hashes = trimmed.trim_end_matches('#');
@@ -802,6 +802,9 @@ mod tests {
             ("## Café ###  \nNext", "Café\nNext"),
             ("## ###", ""),
             ("## C#", "C#"),
+            ("   ## Café ##", "Café"),
+            ("    ## code", "    ## code"),
+            ("  #literal", "  #literal"),
             (r"## literal \#", r"literal \#"),
         ] {
             let mut md = source.to_owned();
