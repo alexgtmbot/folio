@@ -584,11 +584,7 @@ pub fn layout(
             _ if r.start >= pos => {
                 let task = matches!(event, Event::TaskListMarker(_));
                 append_gap(&mut job, pos..r.start, task);
-                let f = if matches!(event, Event::Code(_)) {
-                    &mono
-                } else {
-                    faces.last().unwrap()
-                };
+                let f = faces.last().unwrap();
                 match event {
                     Event::TaskListMarker(done) => {
                         let mark = if done { "☑" } else { "☐" };
@@ -625,7 +621,10 @@ pub fn layout(
                                 "\u{200b}".repeat(trailing)
                             ),
                             0.,
-                            f.clone(),
+                            TextFormat {
+                                font_id: FontId::monospace(f.font_id.size * 0.9),
+                                ..f.clone()
+                            },
                         );
                     }
                     Event::Text(ref value)
@@ -924,6 +923,21 @@ mod tests {
                 source
             );
         }
+    }
+
+    #[test]
+    fn inline_code_inherits_heading_size_and_surrounding_decorations() {
+        let source = "# [*~~`cargo`~~*](guide.md)";
+        let job = layout(source, 500., Color32::WHITE, false, 0, 20.);
+        let code = &job
+            .sections
+            .iter()
+            .find(|s| job.text[s.byte_range.clone()].contains("cargo"))
+            .unwrap()
+            .format;
+        assert_eq!(code.font_id, FontId::monospace(36.));
+        assert!(code.italics && code.underline.width > 0. && code.strikethrough.width > 0.);
+        assert_eq!(job.text.chars().count(), source.chars().count());
     }
 
     #[test]
