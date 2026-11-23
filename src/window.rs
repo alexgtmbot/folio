@@ -462,6 +462,16 @@ pub fn layout(
             Event::Start(tag) => {
                 let mut f = faces.last().unwrap().clone();
                 match tag {
+                    Tag::Item => {
+                        let raw = &text[r.clone()];
+                        let item = raw.trim_start_matches([' ', '\t']);
+                        if matches!(item.lines().next(), Some("-" | "+" | "*")) {
+                            let marker = r.start + raw.len() - item.len();
+                            append_gap(&mut job, pos..marker, false);
+                            job.append("•", 0., body.clone());
+                            pos = marker + 1;
+                        }
+                    }
                     Tag::List(_) => {
                         let before = text[..r.start].trim_end_matches([' ', '\t']);
                         if list_depth > 0 && before.ends_with("\n\n") && pos < before.len() {
@@ -653,6 +663,17 @@ mod tests {
             assert!(compact_list("- [ ] interactive", 400., Color32::WHITE, 17.).is_none());
         });
     }
+    #[test]
+    fn empty_list_markers_are_visible_without_trailing_spaces() {
+        for md in ["-", "+", "*", "- One\n-", "- One\n\n  -"] {
+            let painted = layout(md, 400., Color32::WHITE, false, 0, 17.).text;
+            assert!(painted.ends_with('•'), "{md:?}: {painted:?}");
+            assert_eq!(painted.chars().count(), md.chars().count());
+        }
+        let heading = layout("Title\n-", 400., Color32::WHITE, false, 0, 17.);
+        assert!(!heading.text.contains('•'));
+    }
+
     #[test]
     fn nested_bullet_preview_matches_editable_rows() {
         let md = "- Hey\n\n  - Howdy\n\n    - ";
