@@ -150,6 +150,24 @@ pub fn matching(query: &str) -> impl Iterator<Item = &'static Command> + '_ {
     matches.into_iter().map(|(_, command)| command)
 }
 
+fn list_content(line: &str) -> Option<(&str, usize)> {
+    let body = line.trim_start_matches(' ');
+    let (marker, rest) = body.split_once(' ')?;
+    if !matches!(marker, "-" | "+" | "*") {
+        let digits = marker.strip_suffix(['.', ')'])?;
+        if !(1..=9).contains(&digits.len()) || !digits.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+    }
+    let rest = rest.trim_start_matches(' ');
+    let indent = line.len() - rest.len();
+    let content = ["[ ] ", "[x] ", "[X] "]
+        .into_iter()
+        .find_map(|prefix| rest.strip_prefix(prefix))
+        .unwrap_or(rest);
+    Some((content, indent))
+}
+
 pub fn query(text: &str, selection: &Range<usize>) -> Option<Range<usize>> {
     if !selection.is_empty() {
         return None;
@@ -159,6 +177,7 @@ pub fn query(text: &str, selection: &Range<usize>) -> Option<Range<usize>> {
         .rsplit('\n')
         .next()?
         .trim_start_matches([' ', '\t']);
+    let line = list_content(line).map_or(line, |(content, _)| content);
     let query = line.strip_prefix('/')?;
     if !query.chars().all(|c| c.is_ascii_alphanumeric() || c == ' ') {
         return None;
@@ -176,10 +195,12 @@ pub fn query(text: &str, selection: &Range<usize>) -> Option<Range<usize>> {
 }
 
 pub fn insert(text: &mut String, range: Range<usize>, command: &Command) -> usize {
-    let (before, after) = command
+    let prefix = text[..range.start].rsplit('\n').next().unwrap_or_default();
+    let indent = list_content(prefix).map_or(0, |(_, indent)| indent);
+    let template = command
         .template
-        .split_once('◇')
-        .expect("command insertion marker");
+        .replace('\n', &format!("\n{}", " ".repeat(indent)));
+    let (before, after) = template.split_once('◇').expect("command insertion marker");
     let caret = text[..range.start].chars().count() + before.chars().count();
     text.replace_range(range, &format!("{before}{after}"));
     caret
@@ -204,6 +225,33 @@ mod tests {
         assert_eq!(matching("").count(), COMMANDS.len());
         assert_eq!(matching("1 do x").count(), 0);
     }
+    #[test]
+    fn list_commands_keep_multiline_content_inside_the_item() {
+        let mut text = "- café\n  1. [x] /grid".to_owned();
+        let end = text.chars().count();
+        let span = query(&text, &(end..end)).unwrap();
+        let caret = insert(&mut text, span, &TABLE);
+        assert_eq!(
+            text,
+            "- café\n  1. [x] | Column | Value |\n     | --- | --- |\n     |  |   |"
+        );
+        assert_eq!(&text[byte_at(&text, caret)..], " |   |");
+        let mut depth = 0;
+        let table_depth = pulldown_cmark::Parser::new_ext(&text, crate::blocks::options())
+            .find_map(|event| {
+                use pulldown_cmark::{Event, Tag, TagEnd};
+                match event {
+                    Event::Start(Tag::Item) => depth += 1,
+                    Event::End(TagEnd::Item) => depth -= 1,
+                    Event::Start(Tag::Table(_)) => return Some(depth),
+                    _ => {}
+                }
+                None
+            });
+        assert_eq!(table_depth, Some(2));
+        assert!(query("- literal /grid", &(15..15)).is_none());
+    }
+
     #[test]
     fn replaces_only_trigger_and_preserves_suffix() {
         let mut text = "🦀\n  /tab suffix".to_owned();
