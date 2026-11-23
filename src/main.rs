@@ -33,6 +33,7 @@ struct Tab {
     edit_block: bool,
     history: history::History,
     recorded: Option<Instant>,
+    table_edit: Option<(Range<usize>, String)>,
 }
 impl Tab {
     fn rendered_block(
@@ -56,6 +57,10 @@ impl Tab {
                     .replace_range(byte..byte + 1, if checked { "x" } else { " " });
                 self.doc.dirty = true;
                 self.edited = Some(Instant::now());
+                None
+            }
+            window::BlockAction::ReplaceTable(range, updated) => {
+                self.table_edit = Some((range, updated));
                 None
             }
             window::BlockAction::None => None,
@@ -117,6 +122,7 @@ impl Editor {
             edit_block,
             history: history::History::new(&doc.text),
             recorded: None,
+            table_edit: None,
             id: self.next_id,
             doc,
             source: false,
@@ -1330,6 +1336,17 @@ impl eframe::App for Editor {
         }
         self.toolbar(ctx);
         self.editor(ctx);
+        let tab = &mut self.tabs[self.active];
+        if let Some((range, updated)) = tab.table_edit.take() {
+            let caret = tab.doc.text[..range.start].chars().count();
+            tab.doc.text.replace_range(range, &updated);
+            tab.selection = caret..caret;
+            tab.edit_block = false;
+            tab.doc.dirty = true;
+            tab.edited = Some(Instant::now());
+            self.jump = None;
+            ctx.request_repaint();
+        }
         if let Some(link) = &mut self.link
             && let Some(result) = link.show(ctx)
         {

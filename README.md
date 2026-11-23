@@ -35,7 +35,7 @@ Select words and press **⌘K** (Ctrl+K on Windows and Linux) to add a URL. **Im
 
 Drop a PNG, JPEG, GIF, or WebP onto the editor to insert it at the caret. **⌘V** (Ctrl+V on Windows and Linux) also accepts clipboard images and copied image files. Folio saves pasted pixels as PNG and copies external images into a sibling folder such as `Field notes.assets/`. Images already inside the note’s directory are linked in place. For a new note, choose a save location when prompted. Keep the image folder with the Markdown file when sharing.
 
-Choose **Table** or type `/table` and press Enter. Click a table to edit its cells, use Tab to move between fields, and choose **+ Row** or **+ Column** to expand it. Right-click an editable cell for row, column, alignment, and removal actions. Tab in the last cell adds a row. A typed or pasted GitHub-style pipe table opens the same grid. Source shows the saved pipe syntax. Escape returns to the rendered table. [See the table editor](screenshots/table.png).
+Choose **Table** or type `/table` and press Enter. Click a table to edit its cells, use Tab to move between fields, and choose **+ Row** or **+ Column** to expand it. Right-click a cell for row, column, alignment, and removal actions. Plain-text tables expose the menu directly in Write view. Tab in the last cell adds a row. A typed or pasted GitHub-style pipe table opens the same grid. Source shows the saved pipe syntax. Escape returns to the rendered table. [See the table editor](screenshots/table.png).
 
 The test suite checks the parser against all 652 examples in CommonMark 0.31.2 and exercises the preview for each example. Tables, tasks, footnotes, definition lists, and strikethrough are extensions. HTML is inert and remote images are disabled.
 

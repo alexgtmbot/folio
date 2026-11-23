@@ -128,7 +128,42 @@ impl Table {
 }
 
 /// A single grid for read mode keeps cell widths stable when entering a table.
-pub fn preview(ui: &mut egui::Ui, text: &str, size: f32) -> Option<Option<usize>> {
+fn cell_menu(response: &egui::Response, row: usize, cols: usize) -> Option<TableAction> {
+    let mut chosen = None;
+    response.context_menu(|ui| {
+        for (label, action, enabled) in [
+            ("Insert row above", TableAction::RowBefore, row > 0),
+            ("Insert row below", TableAction::RowAfter, true),
+            ("Delete row", TableAction::RemoveRow, row > 0),
+            ("Insert column left", TableAction::ColumnLeft, true),
+            ("Insert column right", TableAction::ColumnRight, true),
+            ("Delete column", TableAction::RemoveColumn, cols > 1),
+            ("Align left", TableAction::Align(":---"), true),
+            ("Align center", TableAction::Align(":---:"), true),
+            ("Align right", TableAction::Align("---:"), true),
+            ("Remove table", TableAction::Remove, true),
+        ] {
+            if matches!(
+                action,
+                TableAction::ColumnLeft | TableAction::Align(":---") | TableAction::Remove
+            ) {
+                ui.separator();
+            }
+            if ui.add_enabled(enabled, egui::Button::new(label)).clicked() {
+                chosen = Some(action);
+                ui.close_menu();
+            }
+        }
+    });
+    chosen
+}
+
+pub fn preview(
+    ui: &mut egui::Ui,
+    text: &str,
+    size: f32,
+    offset: usize,
+) -> Option<crate::window::BlockAction> {
     let table = Table::parse(text)?;
     // Delegate embedded media and links to the full CommonMark viewer.
     if text.contains('[') || text.contains('<') {
@@ -136,7 +171,7 @@ pub fn preview(ui: &mut egui::Ui, text: &str, size: f32) -> Option<Option<usize>
     }
     let cols = table.rows.first()?.len().max(1);
     let width = ((ui.available_width() - 1.) / cols as f32).max(64.);
-    let mut hit = None;
+    let mut hit = crate::window::BlockAction::None;
     egui::ScrollArea::horizontal().show(ui, |ui| {
         ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
         for (row, cells) in table.rows.iter().enumerate() {
@@ -165,6 +200,14 @@ pub fn preview(ui: &mut egui::Ui, text: &str, size: f32) -> Option<Option<usize>
                 for (col, (span, galley)) in cells.iter().zip(jobs).enumerate() {
                     let (rect, response) =
                         ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::click());
+                    if let Some(action) = cell_menu(&response, row, cols) {
+                        let mut updated = text.to_owned();
+                        table.change(&mut updated, row, col, action);
+                        hit = crate::window::BlockAction::ReplaceTable(
+                            offset..offset + text.len(),
+                            updated,
+                        );
+                    }
                     let header = if ui.visuals().dark_mode {
                         egui::Color32::from_rgb(47, 57, 68)
                     } else {
@@ -196,8 +239,9 @@ pub fn preview(ui: &mut egui::Ui, text: &str, size: f32) -> Option<Option<usize>
                     {
                         let raw = &text[span.clone()];
                         let start = span.start + raw.len() - raw.trim_start().len();
-                        hit = Some(
-                            start
+                        hit = crate::window::BlockAction::Edit(
+                            offset
+                                + start
                                 + crate::document::byte_at(
                                     raw.trim(),
                                     galley.cursor_from_pos(pos - origin).ccursor.index,
@@ -309,33 +353,9 @@ pub fn edit(
                                 .show(ui)
                         })
                         .inner;
-                    out.response.context_menu(|ui| {
-                        for (label, action, enabled) in [
-                            ("Insert row above", TableAction::RowBefore, row > 0),
-                            ("Insert row below", TableAction::RowAfter, true),
-                            ("Delete row", TableAction::RemoveRow, row > 0),
-                            ("Insert column left", TableAction::ColumnLeft, true),
-                            ("Insert column right", TableAction::ColumnRight, true),
-                            ("Delete column", TableAction::RemoveColumn, cols > 1),
-                            ("Align left", TableAction::Align(":---"), true),
-                            ("Align center", TableAction::Align(":---:"), true),
-                            ("Align right", TableAction::Align("---:"), true),
-                            ("Remove table", TableAction::Remove, true),
-                        ] {
-                            if matches!(
-                                action,
-                                TableAction::ColumnLeft
-                                    | TableAction::Align(":---")
-                                    | TableAction::Remove
-                            ) {
-                                ui.separator();
-                            }
-                            if ui.add_enabled(enabled, egui::Button::new(label)).clicked() {
-                                structural = Some((row, col, action));
-                                ui.close_menu();
-                            }
-                        }
-                    });
+                    if let Some(action) = cell_menu(&out.response, row, cols) {
+                        structural = Some((row, col, action));
+                    }
                     if out.response.has_focus()
                         && let Some(cursor) = out.cursor_range
                     {
@@ -406,6 +426,74 @@ pub fn edit(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn right_click_rendered_cell_can_insert_a_row() {
+        let ctx = egui::Context::default();
+        crate::configure_fonts(&ctx);
+        let source = "| Name |\n| --- |\n| Cedar |";
+        let mut point = egui::Pos2::ZERO;
+        let mut changed = None;
+        for frame in 0..7 {
+            let mut events = vec![];
+            if matches!(frame, 1 | 2 | 5 | 6) {
+                let button = if frame < 3 {
+                    egui::PointerButton::Secondary
+                } else {
+                    egui::PointerButton::Primary
+                };
+                events = vec![
+                    egui::Event::PointerMoved(point),
+                    egui::Event::PointerButton {
+                        pos: point,
+                        button,
+                        pressed: matches!(frame, 1 | 5),
+                        modifiers: Default::default(),
+                    },
+                ];
+            }
+            let out = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(800., 600.),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        if let Some(crate::window::BlockAction::ReplaceTable(_, md)) =
+                            preview(ui, source, 17., 0)
+                        {
+                            changed = Some(md);
+                        }
+                    });
+                },
+            );
+            if frame == 0 || frame == 4 {
+                let label = if frame == 0 {
+                    "Cedar"
+                } else {
+                    "Insert row below"
+                };
+                point = out
+                    .shapes
+                    .iter()
+                    .find_map(|s| match &s.shape {
+                        egui::Shape::Text(t) if t.galley.text() == label => {
+                            Some(t.pos + t.galley.size() * 0.5)
+                        }
+                        _ => None,
+                    })
+                    .expect(label);
+            }
+        }
+        assert_eq!(
+            changed.as_deref(),
+            Some("| Name |\n| --- |\n| Cedar |\n|  |")
+        );
+    }
+
     #[test]
     fn contextual_table_edits_preserve_escaped_content() {
         let mut md = "| A | B |\n| --- | ---: |\n| a\\|b | 2 |\n\n".to_owned();

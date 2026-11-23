@@ -170,6 +170,7 @@ fn tasks(text: &str) -> impl Iterator<Item = std::ops::Range<usize>> + '_ {
 pub enum BlockAction {
     Edit(usize),
     Task(usize, bool),
+    ReplaceTable(std::ops::Range<usize>, String),
     None,
 }
 /// Match painted glyph runs to parser text in reading order. This also handles
@@ -318,8 +319,8 @@ pub fn editable_block(
             .graphics(|g| g.get(ui.layer_id()).map_or(0, |list| list.next_idx().0))
     });
     let block = &text[r.clone()];
-    if let Some(hit) = crate::table::preview(ui, block, size) {
-        return hit.map_or(BlockAction::None, |at| BlockAction::Edit(r.start + at));
+    if let Some(hit) = crate::table::preview(ui, block, size, r.start) {
+        return hit;
     }
     if let Some(job) = compact_list(block, ui.available_width(), ui.visuals().text_color(), size) {
         let galley = ui.fonts(|f| f.layout_job(job));
