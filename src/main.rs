@@ -380,12 +380,6 @@ impl Editor {
         } else if key(cmd, Key::K) {
             self.insert_link(false);
         }
-        if key(cmd, Key::N) {
-            self.add(Document::default());
-        }
-        if key(cmd, Key::O) {
-            self.open_dialog();
-        }
         if !self.tabs[self.active].edit_block
             && !self.tabs[self.active].source
             && self.find.is_none()
@@ -430,6 +424,12 @@ impl Editor {
             ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::S));
         if save_as || ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::S)) {
             self.save(save_as);
+        }
+        if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::N)) {
+            self.add(Document::default());
+        }
+        if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::O)) {
+            self.open_dialog();
         }
         if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::W)) {
             self.request_close_tab();
@@ -1674,6 +1674,38 @@ mod drop_tests {
 #[cfg(test)]
 mod slash_menu_tests {
     use super::*;
+
+    #[test]
+    fn new_tab_keeps_pending_text_in_the_original_document() {
+        let ctx = egui::Context::default();
+        configure_fonts(&ctx);
+        let mut app = Editor::with_documents([]);
+        let mut frame = eframe::Frame::_new_kittest();
+        for events in [
+            vec![],
+            vec![
+                egui::Event::Text("Finish this note".into()),
+                egui::Event::Key {
+                    key: Key::N,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: Modifiers::COMMAND,
+                },
+            ],
+        ] {
+            let _ = ctx.run(
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |ctx| eframe::App::update(&mut app, ctx, &mut frame),
+            );
+        }
+        assert_eq!(app.tabs[0].doc.text, "Finish this note");
+        assert_eq!(app.active, 1);
+        assert!(app.tabs[1].doc.text.is_empty());
+    }
 
     #[test]
     fn native_close_protects_an_edit_received_in_the_same_frame() {
