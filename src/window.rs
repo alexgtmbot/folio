@@ -17,22 +17,31 @@ fn local_images<'a>(text: &'a str, base: Option<&std::path::Path>) -> std::borro
         else {
             continue;
         };
-        let raw = dest_url.strip_prefix("file://").unwrap_or(&dest_url);
-        if raw.contains("://") || raw.starts_with("data:") {
-            continue;
-        }
-        let Ok(decoded) = percent_encoding::percent_decode_str(raw).decode_utf8() else {
+        let path = if dest_url.starts_with("file://") {
+            let Some(path) = url::Url::parse(&dest_url)
+                .ok()
+                .and_then(|url| url.to_file_path().ok())
+            else {
+                continue;
+            };
+            path
+        } else {
+            if dest_url.contains("://") || dest_url.starts_with("data:") {
+                continue;
+            }
+            let Ok(decoded) = percent_encoding::percent_decode_str(&dest_url).decode_utf8() else {
+                continue;
+            };
+            if decoded == dest_url.as_ref() && !std::path::Path::new(decoded.as_ref()).is_absolute()
+            {
+                continue;
+            }
+            base.unwrap_or(std::path::Path::new(""))
+                .join(decoded.as_ref())
+        };
+        let Some(path_text) = path.to_str().filter(|p| !p.chars().any(char::is_control)) else {
             continue;
         };
-        if decoded.chars().any(char::is_control) {
-            continue;
-        }
-        if decoded == raw && !std::path::Path::new(raw).is_absolute() {
-            continue;
-        }
-        let path = base
-            .unwrap_or(std::path::Path::new(""))
-            .join(decoded.as_ref());
         let mut depth = 1;
         display.push_str(&text[previous..span.start]);
         display.push_str("![");
@@ -57,7 +66,7 @@ fn local_images<'a>(text: &'a str, base: Option<&std::path::Path>) -> std::borro
             }
         }
         display.push_str("](<file://");
-        for c in path.to_string_lossy().chars() {
+        for c in path_text.chars() {
             if matches!(c, '\\' | '<' | '>' | '&' | '|') {
                 display.push('\\');
             }
@@ -700,6 +709,28 @@ mod tests {
                 (5, 3, "Detail".into()),
                 (17, 2, "Two lines".into())
             ]
+        );
+    }
+
+    #[test]
+    fn absolute_image_url_resolves_independently_of_the_note_directory() {
+        let directory = tempfile::tempdir().unwrap();
+        let image = directory.path().join("Café #1.png");
+        let file = url::Url::from_file_path(&image).unwrap();
+        let local = file.as_str().replacen("file:///", "file://localhost/", 1);
+        let markdown = format!("![Photo]({local})");
+        let display = local_images(&markdown, Some(std::path::Path::new("other")));
+        let destination = pulldown_cmark::Parser::new(&display)
+            .find_map(|event| match event {
+                pulldown_cmark::Event::Start(pulldown_cmark::Tag::Image { dest_url, .. }) => {
+                    Some(dest_url)
+                }
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(
+            std::path::Path::new(destination.strip_prefix("file://").unwrap()),
+            image
         );
     }
 
