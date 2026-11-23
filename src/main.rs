@@ -1787,6 +1787,76 @@ mod slash_menu_tests {
     }
 
     #[test]
+    fn formatting_a_selection_inside_a_table_cell_round_trips_to_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("Table.md");
+        let original = "| Name | Status |\n| --- | --- |\n| Alpine | Prêt |\n";
+        std::fs::write(&path, original).unwrap();
+        let ctx = egui::Context::default();
+        configure_fonts(&ctx);
+        let mut app = Editor::with_documents([path.clone()]);
+        let mut frame = eframe::Frame::_new_kittest();
+        let mut run = |events| {
+            ctx.run(
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |ctx| eframe::App::update(&mut app, ctx, &mut frame),
+            )
+        };
+        let ends = |output: &egui::FullOutput| {
+            output
+                .shapes
+                .iter()
+                .find_map(|entry| {
+                    let egui::Shape::Text(shape) = &entry.shape else {
+                        return None;
+                    };
+                    let galley = &shape.galley;
+                    if galley.text() != "Prêt" {
+                        return None;
+                    }
+                    let pos = |n| {
+                        shape.pos
+                            + galley
+                                .pos_from_cursor(&galley.from_ccursor(CCursor::new(n)))
+                                .center()
+                                .to_vec2()
+                    };
+                    Some((pos(0) + egui::vec2(0.5, 0.), pos(4)))
+                })
+                .unwrap()
+        };
+        let button = |pos, pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        };
+        let (pos, _) = ends(&run(vec![]));
+        run(vec![egui::Event::PointerMoved(pos), button(pos, true)]);
+        run(vec![button(pos, false)]);
+        let (start, end) = ends(&run(vec![]));
+        run(vec![egui::Event::PointerMoved(start), button(start, true)]);
+        run(vec![egui::Event::PointerMoved(end)]);
+        run(vec![button(end, false)]);
+        for key in [Key::B, Key::S] {
+            run(vec![egui::Event::Key {
+                key,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Modifiers::COMMAND,
+            }]);
+        }
+        assert_eq!(
+            std::fs::read_to_string(path).unwrap(),
+            original.replace("Prêt", "**Prêt**")
+        );
+    }
+
+    #[test]
     fn dragging_between_paragraphs_selects_the_source_span() {
         for (active, reverse) in [(false, false), (true, false), (false, true), (true, true)] {
             let ctx = egui::Context::default();
