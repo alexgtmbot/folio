@@ -209,7 +209,32 @@ pub fn format(text: &mut String, selection: Range<usize>, cmd: Format) -> Range<
             let end = start + trimmed.len();
             let first = selection.start + leading.chars().count();
             let selection = first..first + trimmed.chars().count();
-            if text[..start].ends_with(mark) && text[end..].starts_with(mark) {
+            if !selection.is_empty() {
+                use pulldown_cmark::{Event, Parser, TagEnd};
+                for (event, span) in
+                    Parser::new_ext(text, crate::blocks::options()).into_offset_iter()
+                {
+                    let delimiters: &[&str] = match (mark, event) {
+                        ("**", Event::End(TagEnd::Strong)) => &["**", "__"],
+                        ("*", Event::End(TagEnd::Emphasis)) => &["*", "_"],
+                        ("~~", Event::End(TagEnd::Strikethrough)) => &["~~", "~"],
+                        _ => continue,
+                    };
+                    if let Some(delimiter) = delimiters.iter().find(|d| {
+                        span.start + d.len() == start
+                            && end + d.len() == span.end
+                            && text[span.clone()].starts_with(**d)
+                    }) {
+                        text.replace_range(end..span.end, "");
+                        text.replace_range(span.start..start, "");
+                        return selection.start - delimiter.len()..selection.end - delimiter.len();
+                    }
+                }
+            }
+            if selection.is_empty()
+                && text[..start].ends_with(mark)
+                && text[end..].starts_with(mark)
+            {
                 text.replace_range(end..end + mark.len(), "");
                 text.replace_range(start - mark.len()..start, "");
                 return selection.start - mark.len()..selection.end - mark.len();
@@ -645,6 +670,27 @@ mod tests {
         assert_eq!(list_enter("- ", 2), Some((0..2, String::new())));
         assert_eq!(list_enter("```\n- literal", 13), None);
     }
+    #[test]
+    fn selection_toggles_the_existing_mark_regardless_of_delimiter() {
+        for (source, mark, width) in [
+            ("__café__", "**", 2),
+            ("_café_", "*", 1),
+            ("~~café~~", "~~", 2),
+        ] {
+            let mut text = source.to_owned();
+            let selected = format(&mut text, width..width + 4, Format::Wrap(mark));
+            assert_eq!(text, "café");
+            assert_eq!(selected, 0..4);
+        }
+        let mut text = r"\*café*".to_owned();
+        let selected = format(&mut text, 2..6, Format::Wrap("*"));
+        assert_eq!(text, r"\**café**");
+        assert_eq!(selected, 3..7);
+        let mut html = String::new();
+        pulldown_cmark::html::push_html(&mut html, pulldown_cmark::Parser::new(&text));
+        assert_eq!(html.trim(), "<p>*<em>café</em>*</p>");
+    }
+
     #[test]
     fn visual_marks_keep_selected_edge_whitespace_outside_delimiters() {
         for mark in ["**", "*", "~~"] {
