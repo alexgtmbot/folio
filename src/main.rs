@@ -960,14 +960,6 @@ impl Editor {
                             let mut choose = false;
                             let mut moved = false;
                             let mut escape = false;
-                            if visual
-                                && ui.input(|i| i.key_pressed(Key::Escape))
-                                && self.find.is_none()
-                                && slash::query(&tab.doc.text, &tab.selection).is_none()
-                            {
-                                tab.edit_block = false;
-                                ctx.request_repaint();
-                            }
                             if has_focus
                                 && !tab.source
                                 && let Some(r) = slash::query(&tab.doc.text, &tab.selection)
@@ -993,6 +985,14 @@ impl Editor {
                                         escape = i.consume_key(Modifiers::NONE, Key::Escape);
                                     });
                                 }
+                            }
+                            if visual
+                                && ui.input(|i| i.key_pressed(Key::Escape))
+                                && self.find.is_none()
+                                && !escape
+                            {
+                                tab.edit_block = false;
+                                ctx.request_repaint();
                             }
                             if visual
                                 && has_focus
@@ -1699,5 +1699,15 @@ mod slash_menu_tests {
         frame(&mut app, vec![egui::Event::Text("/grid".into())]);
         frame(&mut app, vec![key(Key::Escape)]);
         assert_eq!(app.tabs[app.active].doc.text, "/grid");
+        assert!(app.tabs[app.active].edit_block);
+        frame(&mut app, vec![key(Key::Escape)]);
+        assert!(!app.tabs[app.active].edit_block);
+
+        app.add(Document::default());
+        frame(&mut app, vec![]);
+        frame(&mut app, vec![egui::Event::Text("/nomatches".into())]);
+        frame(&mut app, vec![key(Key::Escape)]);
+        assert!(!app.tabs[app.active].edit_block);
+        assert_eq!(app.tabs[app.active].doc.text, "/nomatches");
     }
 }
