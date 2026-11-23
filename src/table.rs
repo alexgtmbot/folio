@@ -17,6 +17,54 @@ enum TableAction {
     Remove,
 }
 
+// Spreadsheet clipboards quote cells containing tabs, newlines, or double quotes.
+fn clipboard_rows(grid: &str) -> Vec<Vec<String>> {
+    let plain = || {
+        grid.lines()
+            .map(|line| line.split('\t').map(str::to_owned).collect())
+            .collect()
+    };
+    let mut rows = Vec::new();
+    let mut row = Vec::new();
+    let mut input = grid;
+    loop {
+        let value = if let Some(quoted) = input.strip_prefix('"') {
+            let mut field = String::new();
+            let mut rest = quoted;
+            loop {
+                let Some((part, after)) = rest.split_once('"') else {
+                    return plain();
+                };
+                field.push_str(part);
+                if let Some(next) = after.strip_prefix('"') {
+                    field.push('"');
+                    rest = next;
+                } else if after.is_empty() || after.starts_with(['\t', '\n']) {
+                    input = after;
+                    break field.replace('\n', " ");
+                } else {
+                    return plain();
+                }
+            }
+        } else {
+            let end = input.find(['\t', '\n']).unwrap_or(input.len());
+            let (field, after) = input.split_at(end);
+            input = after;
+            field.to_owned()
+        };
+        row.push(value);
+        if let Some(next) = input.strip_prefix('\t') {
+            input = next;
+        } else {
+            rows.push(std::mem::take(&mut row));
+            input = input.strip_prefix('\n').unwrap_or_default();
+            if input.is_empty() {
+                return rows;
+            }
+        }
+    }
+}
+
 struct Table {
     alignment: Vec<pulldown_cmark::Alignment>,
     rows: Vec<Vec<Range<usize>>>,
@@ -96,26 +144,27 @@ impl Table {
             }
             TableAction::PasteGrid(grid) => {
                 let grid = grid.replace("\r\n", "\n").replace('\r', "\n");
+                let grid = clipboard_rows(&grid);
                 let width = grid
-                    .lines()
-                    .map(|line| col + line.split('\t').count())
+                    .iter()
+                    .map(|line| col + line.len())
                     .max()
                     .unwrap_or(cols)
                     .max(cols);
                 rows[0].resize_with(width, String::new);
                 rows[1].resize_with(width, || "---".into());
-                for (offset, line) in grid.lines().enumerate() {
+                for (offset, line) in grid.into_iter().enumerate() {
                     let target = row + offset;
                     let index = target + usize::from(target > 0);
                     if index == rows.len() {
                         rows.push(Vec::new());
                     }
                     let cells = &mut rows[index];
-                    let end = col + line.split('\t').count();
+                    let end = col + line.len();
                     if cells.len() < end {
                         cells.resize_with(end, String::new);
                     }
-                    for (c, value) in line.split('\t').enumerate() {
+                    for (c, value) in line.into_iter().enumerate() {
                         cells[col + c] = value.replace('\\', "\\\\").replace('|', "\\|");
                     }
                 }
@@ -638,6 +687,18 @@ mod tests {
         assert_eq!(text, "| A | nextB |\n| --- | --- |\n| first | last |");
     }
     #[test]
+    fn quoted_clipboard_cells_preserve_boundaries() {
+        assert_eq!(
+            clipboard_rows("\"one\ttwo\"\t\"three\nfour\"\n\"a\"\"b\"\t\n"),
+            [vec!["one\ttwo", "three four"], vec!["a\"b", ""]]
+        );
+        assert_eq!(
+            clipboard_rows("\"unfinished\tvalue"),
+            [vec!["\"unfinished", "value"]]
+        );
+    }
+
+    #[test]
     fn spreadsheet_paste_expands_table_from_focused_cell() {
         let ctx = egui::Context::default();
         crate::configure_fonts(&ctx);
@@ -645,7 +706,12 @@ mod tests {
         let start = text.find("here").unwrap();
         for (focus, events) in [
             (Some(start..start), vec![]),
-            (None, vec![egui::Event::Paste("α\tb|c\r\n🦀\td\r\n".into())]),
+            (
+                None,
+                vec![egui::Event::Paste(
+                    "\"α\tβ\"\tb|c\r\n🦀\t\"d\r\ne\"\r\n".into(),
+                )],
+            ),
         ] {
             let _ = ctx.run(
                 egui::RawInput {
@@ -660,7 +726,7 @@ mod tests {
         }
         assert_eq!(
             text,
-            "| A | B |  |\n| :--- | ---: | --- |\n| keep | α | b\\|c |\n|  | 🦀 | d |"
+            "| A | B |  |\n| :--- | ---: | --- |\n| keep | α\tβ | b\\|c |\n|  | 🦀 | d e |"
         );
         assert_eq!(Table::parse(&text).unwrap().rows.len(), 3);
     }
