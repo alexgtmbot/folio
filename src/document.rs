@@ -226,6 +226,36 @@ pub fn format(text: &mut String, selection: Range<usize>, cmd: Format) -> Range<
         }
         Format::Block(_) | Format::Task => {
             let pos = text[..start].rfind(['\r', '\n']).map_or(0, |i| i + 1);
+            let mut pos = pos;
+            if matches!(cmd, Format::Task) {
+                let line = text[pos..].lines().next().unwrap_or_default();
+                let body = line.trim_start_matches([' ', '\t']);
+                pos += line.len() - body.len();
+                if let Some((marker, content)) = body.split_once([' ', '\t'])
+                    && (matches!(marker, "-" | "+" | "*")
+                        || marker.strip_suffix(['.', ')']).is_some_and(|n| {
+                            (1..=9).contains(&n.len()) && n.bytes().all(|b| b.is_ascii_digit())
+                        }))
+                {
+                    let content = content.trim_start_matches([' ', '\t']);
+                    pos += body.len() - content.len();
+                    if let Some(state) = content.as_bytes().get(1)
+                        && matches!(state, b' ' | b'x' | b'X')
+                        && content.starts_with('[')
+                        && content.as_bytes().get(2) == Some(&b']')
+                        && (content.len() == 3 || content[3..].starts_with([' ', '\t']))
+                    {
+                        text.replace_range(
+                            pos + 1..pos + 2,
+                            if *state == b' ' { "x" } else { " " },
+                        );
+                        return selection;
+                    }
+                    text.insert_str(pos, "[ ] ");
+                    let at = text[..pos].chars().count();
+                    return selection.start.max(at) + 4..selection.end.max(at) + 4;
+                }
+            }
             let line = &text[pos..];
             let (n, prefix) = match cmd {
                 Format::Block(p) => (block_prefix(line), p),
@@ -491,6 +521,21 @@ mod tests {
         );
         assert_eq!(list_enter("Title\n-", 7), None);
         assert_eq!(list_enter("- content", 1), None);
+    }
+
+    #[test]
+    fn task_format_preserves_list_marker_and_nesting() {
+        for (source, expected) in [
+            ("  * item", "  * [ ] item"),
+            ("+ [ ] café", "+ [x] café"),
+            ("  12) [X] done", "  12) [ ] done"),
+        ] {
+            let mut md = source.to_owned();
+            let caret = md.chars().count();
+            let selection = format(&mut md, caret..caret, Format::Task);
+            assert_eq!(md, expected);
+            assert_eq!(selection.start, expected.chars().count());
+        }
     }
 
     #[test]
