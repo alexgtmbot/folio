@@ -82,6 +82,44 @@ pub fn byte_at(text: &str, character: usize) -> usize {
         .map_or(text.len(), |(i, _)| i)
 }
 
+/// Move beyond the closing delimiter when toggling the style at its trailing edge.
+pub fn exit_inline(text: &str, selection: &Range<usize>, cmd: Format) -> Option<Range<usize>> {
+    use pulldown_cmark::{Event, Parser, TagEnd};
+    let Format::Wrap(mark) = cmd else { return None };
+    if !selection.is_empty() {
+        return None;
+    }
+    let caret = byte_at(text, selection.start);
+    if !matches!(text.as_bytes().get(caret), Some(b'*' | b'_' | b'~' | b'`')) {
+        return None;
+    }
+    for (event, span) in Parser::new_ext(text, crate::blocks::options()).into_offset_iter() {
+        if !(span.start < caret && caret < span.end) {
+            continue;
+        }
+        let suffix = &text[caret..span.end];
+        let matches = match (mark, event) {
+            ("**", Event::End(TagEnd::Strong)) => matches!(suffix, "**" | "__"),
+            ("*", Event::End(TagEnd::Emphasis)) => matches!(suffix, "*" | "_"),
+            ("~~", Event::End(TagEnd::Strikethrough)) => matches!(suffix, "~~" | "~"),
+            ("`", Event::Code(_)) => {
+                suffix.bytes().all(|b| b == b'`')
+                    && suffix.len()
+                        == text[span.start..span.end]
+                            .bytes()
+                            .take_while(|b| *b == b'`')
+                            .count()
+            }
+            _ => false,
+        };
+        if matches {
+            let after = selection.start + suffix.len();
+            return Some(after..after);
+        }
+    }
+    None
+}
+
 pub fn format(text: &mut String, selection: Range<usize>, cmd: Format) -> Range<usize> {
     let start = byte_at(text, selection.start);
     let end = byte_at(text, selection.end);
@@ -168,6 +206,27 @@ mod tests {
         assert_eq!(list_enter("- ", 2), Some((0..2, String::new())));
         assert_eq!(list_enter("```\n- literal", 13), None);
     }
+    #[test]
+    fn toggle_off_after_typing_leaves_delimiters_intact() {
+        for (mark, source) in [
+            ("**", "__🦀__"),
+            ("*", "*🦀*"),
+            ("~~", "~~🦀~~"),
+            ("`", "``🦀``"),
+        ] {
+            let n = source.find('🦀').unwrap() + 1;
+            let end = source.chars().count();
+            assert_eq!(
+                exit_inline(source, &(n..n), Format::Wrap(mark)),
+                Some(end..end)
+            );
+        }
+        assert_eq!(
+            exit_inline("x **literal", &(2..2), Format::Wrap("**")),
+            None
+        );
+    }
+
     #[test]
     fn edit_save_and_conflict() {
         let dir = tempfile::tempdir().unwrap();

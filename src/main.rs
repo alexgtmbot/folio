@@ -175,6 +175,10 @@ impl Editor {
     }
     fn apply(&mut self, cmd: Format) {
         let tab = &mut self.tabs[self.active];
+        if let Some(after) = document::exit_inline(&tab.doc.text, &tab.selection, cmd) {
+            self.jump = Some(after);
+            return;
+        }
         self.jump = Some(document::format(
             &mut tab.doc.text,
             tab.selection.clone(),
