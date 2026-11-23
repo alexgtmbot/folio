@@ -39,7 +39,7 @@ Choose **Table** or type `/table` and press Enter. Click a table to edit its cel
 
 The test suite checks the parser against all 652 examples in CommonMark 0.31.2 and exercises the preview for each example. Tables, tasks, footnotes, definition lists, and strikethrough are extensions. HTML is inert and remote images are disabled.
 
-In Write mode, type **/** at the beginning of a line and filter by name (for example, **/table**). Use ↑ or ↓ to select, Enter or Tab to insert, or Escape to keep the literal text. Slash commands are disabled inside code blocks. [See the command menu](screenshots/commands.png).
+In Write mode, type **/** at the beginning of a line and filter by name or alias (for example, **/table**, **/grid**, **/checkbox**, or **/h2**). Use ↑ or ↓ to select, Enter or Tab to insert, or Escape to keep the literal text. Slash commands are disabled inside code blocks. [See the command menu](screenshots/commands.png).
 
 | Command | Mac | Windows / Linux |
 |---|---|---|

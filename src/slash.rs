@@ -4,101 +4,132 @@ use std::ops::Range;
 pub struct Command {
     pub name: &'static str,
     pub template: &'static str,
+    aliases: &'static [&'static str],
 }
 
 // The diamond marks the insertion point after choosing a command.
 pub const TABLE: Command = Command {
     name: "Table",
+    aliases: &["grid"],
     template: "| Column | Value |\n| --- | --- |\n| ◇ |   |",
 };
 
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "Heading 1",
+        aliases: &["h1", "title"],
         template: "# ◇",
     },
     Command {
         name: "Heading 2",
+        aliases: &["h2", "subtitle"],
         template: "## ◇",
     },
     Command {
         name: "Heading 3",
+        aliases: &["h3"],
         template: "### ◇",
     },
     Command {
         name: "Bullet list",
+        aliases: &["ul", "unordered"],
         template: "- ◇",
     },
     Command {
         name: "Numbered list",
+        aliases: &["ol", "ordered"],
         template: "1. ◇",
     },
     Command {
         name: "Task",
+        aliases: &["todo", "checkbox", "checklist"],
         template: "- [ ] ◇",
     },
     Command {
         name: "Quote",
+        aliases: &["blockquote"],
         template: "> ◇",
     },
     Command {
         name: "Code block",
+        aliases: &["fence", "snippet"],
         template: "```\n◇\n```",
     },
     TABLE,
     Command {
         name: "Link",
+        aliases: &["url", "hyperlink"],
         template: "[◇](https://)",
     },
     Command {
         name: "Image",
+        aliases: &["photo", "picture"],
         template: "![◇](image.png)",
     },
     Command {
         name: "Divider",
+        aliases: &["rule", "separator", "hr"],
         template: "---\n◇",
     },
     Command {
         name: "Footnote",
+        aliases: &["note"],
         template: "[^1]: ◇",
     },
     Command {
         name: "Heading 4",
+        aliases: &["h4"],
         template: "#### ◇",
     },
     Command {
         name: "Heading 5",
+        aliases: &["h5"],
         template: "##### ◇",
     },
     Command {
         name: "Heading 6",
+        aliases: &["h6"],
         template: "###### ◇",
     },
     Command {
         name: "Bold",
+        aliases: &["strong"],
         template: "**◇**",
     },
     Command {
         name: "Italic",
+        aliases: &["emphasis"],
         template: "*◇*",
     },
     Command {
         name: "Strikethrough",
+        aliases: &["strike", "delete"],
         template: "~~◇~~",
     },
     Command {
         name: "Inline code",
+        aliases: &["monospace"],
         template: "`◇`",
     },
     Command {
         name: "Definition list",
+        aliases: &["glossary"],
         template: "Term\n: ◇",
     },
     Command {
         name: "Reference link",
+        aliases: &["ref"],
         template: "[◇][ref]\n\n[ref]: https://",
     },
 ];
+
+pub fn matching(query: &str) -> impl Iterator<Item = &'static Command> + '_ {
+    let query = query.trim().to_ascii_lowercase();
+    COMMANDS.iter().filter(move |command| {
+        command.name.to_ascii_lowercase().contains(&query)
+            || command.aliases.iter().any(|alias| alias.contains(&query))
+    })
+}
 
 pub fn query(text: &str, selection: &Range<usize>) -> Option<Range<usize>> {
     if !selection.is_empty() {
@@ -138,6 +169,20 @@ pub fn insert(text: &mut String, range: Range<usize>, command: &Command) -> usiz
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn aliases_resolve_to_the_same_command_used_by_keyboard_and_pointer() {
+        for (query, expected) in [
+            ("H3", "Heading 3"),
+            ("checkbox", "Task"),
+            ("grid", "Table"),
+            ("snippet", "Code block"),
+            ("picture", "Image"),
+        ] {
+            assert_eq!(matching(query).next().unwrap().name, expected);
+        }
+        assert_eq!(matching("").count(), COMMANDS.len());
+        assert_eq!(matching("1 do x").count(), 0);
+    }
     #[test]
     fn replaces_only_trigger_and_preserves_suffix() {
         let mut text = "🦀\n  /tab suffix".to_owned();

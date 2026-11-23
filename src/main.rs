@@ -933,10 +933,7 @@ impl Editor {
                                 && let Some(r) = slash::query(&tab.doc.text, &tab.selection)
                             {
                                 let query = tab.doc.text[r.start + 1..r.end].to_lowercase();
-                                let count = slash::COMMANDS
-                                    .iter()
-                                    .filter(|c| c.name.to_ascii_lowercase().contains(&query))
-                                    .count();
+                                let count = slash::matching(&query).count();
                                 if count > 0
                                     && tab.dismissed.as_ref() != Some(&(r.start, query.to_owned()))
                                 {
@@ -1179,10 +1176,7 @@ impl Editor {
                                     tab.dismissed = Some((r.start, query.clone()));
                                 }
                                 if tab.dismissed.as_ref() != Some(&(r.start, query.clone())) {
-                                    let matches: Vec<_> = slash::COMMANDS
-                                        .iter()
-                                        .filter(|c| c.name.to_lowercase().contains(&query))
-                                        .collect();
+                                    let matches: Vec<_> = slash::matching(&query).collect();
                                     if !matches.is_empty() {
                                         ui.memory_mut(|m| {
                                             m.set_focus_lock_filter(
@@ -1556,5 +1550,44 @@ mod drop_tests {
         let _ = ctx.run(raw, |ctx| editor.handle_drops(ctx));
         assert_eq!(editor.tabs[original].doc.text, "a ![tiny](tiny.png) b");
         assert_eq!(editor.tabs[editor.active].doc.text, "# Other");
+    }
+}
+
+#[cfg(test)]
+mod slash_menu_tests {
+    use super::*;
+
+    #[test]
+    fn keyboard_accepts_checkbox_alias_and_escape_preserves_literal_query() {
+        let ctx = egui::Context::default();
+        configure_fonts(&ctx);
+        let mut app = Editor::new();
+        app.add(Document::default());
+        let key = |key| egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        };
+        let frame = |app: &mut Editor, events| {
+            let _ = ctx.run(
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |ctx| app.editor(ctx),
+            );
+        };
+        frame(&mut app, vec![]);
+        frame(&mut app, vec![egui::Event::Text("/checkbox".into())]);
+        frame(&mut app, vec![key(Key::Enter)]);
+        frame(&mut app, vec![egui::Event::Text("Pack map".into())]);
+        assert_eq!(app.tabs[app.active].doc.text, "- [ ] Pack map");
+        app.add(Document::default());
+        frame(&mut app, vec![]);
+        frame(&mut app, vec![egui::Event::Text("/grid".into())]);
+        frame(&mut app, vec![key(Key::Escape)]);
+        assert_eq!(app.tabs[app.active].doc.text, "/grid");
     }
 }
