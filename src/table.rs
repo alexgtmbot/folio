@@ -98,6 +98,27 @@ impl Table {
             text.replace_range(self.start..self.end, "");
             return;
         }
+        if let TableAction::Align(marker) = action {
+            let table = &text[self.start..self.end];
+            let start =
+                self.start + table.find('\n').expect("parsed table has a delimiter row") + 1;
+            let line = text[start..].lines().next().unwrap();
+            let cells = line.trim_start_matches(CELL_PADDING);
+            let cells = cells.strip_prefix('|').unwrap_or(cells);
+            let mut offset = start + line.len() - cells.len();
+            for (column, cell) in cells.split('|').enumerate() {
+                if column == col {
+                    offset += cell.len() - cell.trim_start_matches(CELL_PADDING).len();
+                    text.replace_range(
+                        offset..offset + cell.trim_matches(CELL_PADDING).len(),
+                        marker,
+                    );
+                    return;
+                }
+                offset += cell.len() + 1;
+            }
+            return;
+        }
         // Split only on actual pipe delimiters. Keep escaped pipes and spare
         // cells in ragged source rows when changing the table structure.
         let mut rows: Vec<Vec<String>> = text[self.start..self.end]
@@ -191,7 +212,6 @@ impl Table {
                     }
                 }
             }
-            TableAction::Align(marker) => rows[1][col] = marker.into(),
             _ => return,
         }
         let output = rows
@@ -601,6 +621,26 @@ pub fn edit(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn aligning_one_column_only_changes_its_delimiter_marker() {
+        for (source, expected) in [
+            (
+                "A | B\n----- |  :---  \n  café | x\\|y",
+                "A | B\n----- |  ---:  \n  café | x\\|y",
+            ),
+            (
+                "| A | B |\n| ----- |  :---  |\n|  café | x\\|y |",
+                "| A | B |\n| ----- |  ---:  |\n|  café | x\\|y |",
+            ),
+        ] {
+            let mut text = source.to_owned();
+            Table::parse(&text)
+                .unwrap()
+                .change(&mut text, 1, 1, TableAction::Align("---:"));
+            assert_eq!(text, expected);
+        }
+    }
+
     #[test]
     fn literal_brackets_and_comparisons_keep_the_interactive_table_grid() {
         let ctx = egui::Context::default();
