@@ -56,6 +56,7 @@ pub fn web_link_at(source: &str, byte: usize) -> Option<String> {
 }
 
 struct ExistingLabel {
+    destination: String,
     displayed: String,
     markdown: Option<String>,
     title: String,
@@ -130,6 +131,7 @@ impl Link {
             let mut dialog = Self::new(tab, span, label, image);
             dialog.destination = dest.into_string();
             dialog.existing = Some(ExistingLabel {
+                destination: dialog.destination.clone(),
                 displayed: dialog.label.clone(),
                 markdown: original,
                 title: title.into_string(),
@@ -187,6 +189,18 @@ impl Link {
             }
         }
         format!("{}[{label}]({dest})", if self.image { "!" } else { "" })
+    }
+
+    fn apply(&mut self) -> Option<String> {
+        if self.existing.as_ref().is_some_and(|original| {
+            self.label == original.displayed && self.destination == original.destination
+        }) {
+            return None;
+        }
+        if self.existing.is_none() && !self.image && self.label.is_empty() {
+            self.label = self.destination.trim().to_owned();
+        }
+        Some(self.markdown())
     }
 
     pub fn show(&mut self, ctx: &egui::Context) -> Option<Option<String>> {
@@ -259,10 +273,7 @@ impl Link {
                         && url.lost_focus()
                         && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter))
                 {
-                    if self.existing.is_none() && !self.image && self.label.is_empty() {
-                        self.label = self.destination.trim().to_owned();
-                    }
-                    return Some(Some(self.markdown()));
+                    return Some(self.apply());
                 }
                 ui.button("Cancel").clicked().then_some(None)
             })
@@ -279,6 +290,20 @@ impl Link {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn applying_unchanged_links_leaves_original_source_untouched() {
+        for (source, image) in [
+            ("[guide][map]\n\n[map]: old.md 'Title'", false),
+            ("![map](<a b.png> 'Trail')", true),
+            ("<https://example.org>", false),
+        ] {
+            let mut dialog = Link::at_selection(0, source, 1..1, image);
+            assert!(dialog.apply().is_none());
+            dialog.destination = "new.md".into();
+            assert!(dialog.apply().is_some());
+        }
+    }
+
     #[test]
     fn editing_a_link_preserves_its_formatted_label_and_title() {
         let source = "See [the **map**](old.md \"Trail guide\") today";
