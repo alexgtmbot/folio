@@ -190,6 +190,11 @@ pub fn query(text: &str, selection: &Range<usize>) -> Option<Range<usize>> {
     let (_, line) = split_quote_prefix(line);
     let line =
         list_content(line).map_or(line.trim_start_matches([' ', '\t']), |(content, _)| content);
+    let line = if line.starts_with('#') {
+        &line[folio::block_prefix(line)..]
+    } else {
+        line
+    };
     let query = line.strip_prefix('/')?;
     if !query.chars().all(|c| c.is_ascii_alphanumeric() || c == ' ') {
         return None;
@@ -206,10 +211,17 @@ pub fn query(text: &str, selection: &Range<usize>) -> Option<Range<usize>> {
     (!in_code).then_some(start..end)
 }
 
-pub fn insert(text: &mut String, range: Range<usize>, command: &Command) -> usize {
+pub fn insert(text: &mut String, mut range: Range<usize>, command: &Command) -> usize {
     let prefix = text[..range.start].rsplit('\n').next().unwrap_or_default();
     let (quote, prefix) = split_quote_prefix(prefix);
-    let indent = list_content(prefix).map_or(0, |(_, indent)| indent);
+    let (body, indent) = list_content(prefix).unwrap_or((prefix, 0));
+    let heading = body.trim_start_matches([' ', '\t']);
+    if text[range.clone()].starts_with('/')
+        && heading.starts_with('#')
+        && folio::block_prefix(heading) == heading.len()
+    {
+        range.start -= heading.len();
+    }
     let footnote;
     let template = if command.name == "Footnote" {
         // Reserve unresolved references too, so inserting a note cannot retarget them.
@@ -239,6 +251,19 @@ pub fn insert(text: &mut String, range: Range<usize>, command: &Command) -> usiz
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn slash_can_restyle_an_empty_heading_without_stacking_markers() {
+        let mut text = "🦀\n\n> ## /h3".to_owned();
+        let end = text.chars().count();
+        let range = query(&text, &(end..end)).unwrap();
+        assert_eq!(&text[range.clone()], "/h3");
+        let caret = insert(&mut text, range, matching("h3").next().unwrap());
+        text.insert_str(byte_at(&text, caret), "Title");
+        assert_eq!(text, "🦀\n\n> ### Title");
+        let prose = "# Existing /h3";
+        assert!(query(prose, &(prose.len()..prose.len())).is_none());
+    }
+
     #[test]
     fn divider_after_prose_is_a_rule_and_keeps_the_caret_below_it() {
         let mut text = "Notes\n/divider".to_owned();
