@@ -720,10 +720,13 @@ impl Editor {
                         if headings.is_empty() {
                             ui.weak("No headings yet");
                         }
-                        for (pos, title) in headings {
-                            if ui.selectable_label(false, title).clicked() {
-                                self.jump = Some(pos..pos);
-                            }
+                        for (pos, level, title) in headings {
+                            ui.horizontal(|ui| {
+                                ui.add_space((level - 1) as f32 * 12.0);
+                                if ui.selectable_label(false, title).clicked() {
+                                    self.jump = Some(pos..pos);
+                                }
+                            });
                         }
                     });
                 });

@@ -408,7 +408,7 @@ pub fn editable_block(
     }
 }
 
-pub fn outline(text: &str) -> Vec<(usize, String)> {
+pub fn outline(text: &str) -> Vec<(usize, usize, String)> {
     use pulldown_cmark::{Event, Parser, Tag, TagEnd};
     let mut result = Vec::new();
     let mut heading = None;
@@ -416,10 +416,10 @@ pub fn outline(text: &str) -> Vec<(usize, String)> {
     let mut chars = 0;
     for (event, range) in Parser::new_ext(text, crate::blocks::options()).into_offset_iter() {
         match event {
-            Event::Start(Tag::Heading { .. }) => {
+            Event::Start(Tag::Heading { level, .. }) => {
                 chars += text[last..range.start].chars().count();
                 last = range.start;
-                heading = Some((chars, String::new()));
+                heading = Some((chars, level as usize, String::new()));
             }
             Event::End(TagEnd::Heading(_)) => {
                 if let Some(entry) = heading.take() {
@@ -427,8 +427,13 @@ pub fn outline(text: &str) -> Vec<(usize, String)> {
                 }
             }
             Event::Text(t) | Event::Code(t) => {
-                if let Some((_, name)) = &mut heading {
+                if let Some((_, _, name)) = &mut heading {
                     name.push_str(&t);
+                }
+            }
+            Event::SoftBreak | Event::HardBreak => {
+                if let Some((_, _, name)) = &mut heading {
+                    name.push(' ');
                 }
             }
             _ => {}
@@ -638,6 +643,18 @@ pub fn layout(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn outline_preserves_heading_depth_and_multiline_titles() {
+        assert_eq!(
+            outline("# 🦀\n\n### Detail\n\nTwo\nlines\n-----"),
+            [
+                (0, 1, "🦀".into()),
+                (5, 3, "Detail".into()),
+                (17, 2, "Two lines".into())
+            ]
+        );
+    }
+
     #[test]
     fn local_image_uri_is_decoded_only_for_display() {
         use pulldown_cmark::{Event, Parser, Tag};
@@ -959,6 +976,6 @@ mod tests {
                 text.chars().count()
             );
         }
-        assert_eq!(outline(text), [(0, "🦀".into())]);
+        assert_eq!(outline(text), [(0, 1, "🦀".into())]);
     }
 }
