@@ -73,6 +73,7 @@ impl Document {
 pub enum Format {
     Block(&'static str),
     Wrap(&'static str),
+    CodeBlock,
     Task,
 }
 
@@ -161,6 +162,27 @@ pub fn format(text: &mut String, selection: Range<usize>, cmd: Format) -> Range<
         }
     }
     match cmd {
+        Format::CodeBlock => {
+            let first = text[..start].rfind('\n').map_or(0, |i| i + 1);
+            let last = if start < end && text[..end].ends_with('\n') {
+                end - 1
+            } else {
+                end
+            };
+            let stop = text[last..].find('\n').map_or(text.len(), |i| last + i);
+            let content = &text[first..stop];
+            let longest = content
+                .lines()
+                .map(|line| line.trim_start().bytes().take_while(|b| *b == b'`').count())
+                .max()
+                .unwrap_or(0);
+            let fence = "`".repeat(3.max(longest + 1));
+            let shift = fence.len() + 1;
+            let selected = selection.start + shift..text[..end.min(stop)].chars().count() + shift;
+            text.insert_str(stop, &format!("\n{fence}"));
+            text.insert_str(first, &format!("{fence}\n"));
+            selected
+        }
         Format::Wrap("`") if start < end => {
             let content = &text[start..end];
             for (event, span) in
@@ -772,6 +794,25 @@ mod tests {
             &md[byte_at(&md, selected.start)..byte_at(&md, selected.end)],
             "noir"
         );
+    }
+
+    #[test]
+    fn code_block_style_wraps_selected_lines_without_closing_on_literal_fences() {
+        let mut text = "Intro\ncafé\n```\nfinish\nAfter".to_owned();
+        let from = text[..text.find("café").unwrap()].chars().count();
+        let end = text[..text.find("After").unwrap()].chars().count();
+        let selected = format(&mut text, from..end, Format::CodeBlock);
+        assert_eq!(text, "Intro\n````\ncafé\n```\nfinish\n````\nAfter");
+        assert_eq!(
+            &text[byte_at(&text, selected.start)..byte_at(&text, selected.end)],
+            "café\n```\nfinish"
+        );
+        let mut html = String::new();
+        pulldown_cmark::html::push_html(&mut html, pulldown_cmark::Parser::new(&text));
+        assert!(html.contains("<pre><code>café\n```\nfinish\n</code></pre>"));
+        let mut blank = String::new();
+        assert_eq!(format(&mut blank, 0..0, Format::CodeBlock), 4..4);
+        assert_eq!(blank, "```\n\n```");
     }
 
     #[test]

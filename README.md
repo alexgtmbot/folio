@@ -42,7 +42,7 @@ Choose **Table**, or type `/table` and press Enter. Click a cell to edit it. Tab
 ### Working with the development build
 
 - **Paste spreadsheet cells.** Click the destination cell and paste tab-separated text. Folio fills cells to the right and down, adding columns and rows as needed. Existing values in the pasted area are replaced. A quoted line break within a cell becomes a space so the saved Markdown table stays valid.
-- **Leave a code block.** Type `/snippet` to insert a fenced block. From inside a top-level fenced block, press ⌘Enter (Ctrl+Enter on Windows and Linux) to write a paragraph below it. Folio closes an unfinished fence for you.
+- **Write a code block.** Select existing lines and choose **Text style → Code block**, or type `/snippet` to start an empty one. From inside a top-level fenced block, press ⌘Enter (Ctrl+Enter on Windows and Linux) to write a paragraph below it. Folio closes an unfinished fence for you.
 - **Quote a passage.** Select one or more paragraphs and click **Quote**. Headings and lists keep their formatting inside the quote. While writing a quote, press Enter to continue it. Press Enter on an empty quoted line to leave one nesting level. [Quoted heading and list](screenshots/quoted-list.png)
 - **Add a footnote.** At the start of a line, type `/footnote` and press Enter. Folio inserts a reference and a matching definition with an unused number. Start typing to fill in the note.
 

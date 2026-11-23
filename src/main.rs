@@ -585,6 +585,10 @@ impl Editor {
                             ui.close_menu();
                         }
                     }
+                    if ui.button("Code block").clicked() {
+                        self.apply(Format::CodeBlock);
+                        ui.close_menu();
+                    }
                     ui.separator();
                     for (name, up) in [("Move block up", true), ("Move block down", false)] {
                         if ui.button(name).clicked() {
