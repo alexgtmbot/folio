@@ -545,6 +545,26 @@ mod tests {
         assert_eq!(text, "before\n- 🦀\n\n- café\n- three\nafter");
     }
     #[test]
+    fn save_as_redirects_subsequent_edits_to_the_copy() {
+        let dir = tempfile::tempdir().unwrap();
+        let original = dir.path().join("original.md");
+        let copy = dir.path().join("copy.md");
+        let bytes = "\u{feff}# café\r\n";
+        fs::write(&original, bytes).unwrap();
+        let mut doc = Document::open(&original).unwrap();
+        doc.save(&copy).unwrap();
+        assert_eq!(fs::read(&copy).unwrap(), bytes.as_bytes());
+        doc.text.push_str("Revised copy\n");
+        let active = doc.path.clone().unwrap();
+        doc.save(&active).unwrap();
+        assert_eq!(fs::read_to_string(&original).unwrap(), bytes);
+        assert_eq!(
+            fs::read_to_string(&copy).unwrap(),
+            format!("{bytes}Revised copy\r\n")
+        );
+    }
+
+    #[test]
     fn edit_save_and_conflict() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("note.md");
