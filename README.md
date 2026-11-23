@@ -39,6 +39,12 @@ To build a list visually, choose **• List**, type an item, and press Enter for
 
 Choose **Table**, or type `/table` and press Enter. Click a cell to edit it. Tab moves forward and Shift+Tab moves backward across row boundaries. Tab from the last cell adds a row. Right-click a cell to insert or remove rows and columns or change column alignment. Press Escape to return to the rendered table, or ⌘Enter (Ctrl+Enter on Windows and Linux) to write below it. You can also paste a GitHub-style pipe table and edit it in the same grid. [See the table editor](screenshots/table.png).
 
+### Working with the development build
+
+- **Paste spreadsheet cells.** Click the destination cell and paste tab-separated text. Folio fills cells to the right and down, adding columns and rows as needed. Existing values in the pasted area are replaced. A quoted line break within a cell becomes a space so the saved Markdown table stays valid.
+- **Quote a passage.** Select one or more paragraphs and click **Quote**. Headings and lists keep their formatting inside the quote. While writing a quote, press Enter to continue it. Press Enter on an empty quoted line to leave one nesting level. [Quoted heading and list](screenshots/quoted-list.png)
+- **Add a footnote.** At the start of a line, type `/footnote` and press Enter. Folio inserts a reference and a matching definition with an unused number. Start typing to fill in the note.
+
 The test suite checks the parser against all 652 examples in CommonMark 0.31.2 and exercises the preview for each example. Tables, tasks, footnotes, definition lists, and strikethrough are extensions. HTML is inert and remote images are disabled.
 
 In Write mode, type **/** at the beginning of a line and filter by name or alias (for example, **/table**, **/grid**, **/checkbox**, or **/h2**). Use ↑ or ↓ to select, Enter or Tab to insert, or Escape to keep the literal text. Slash commands are disabled inside code blocks. [See the command menu](screenshots/commands.png).
