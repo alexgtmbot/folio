@@ -276,7 +276,7 @@ impl Editor {
         let caret = tab.doc.text[..start].chars().count() + markdown.chars().count();
         tab.doc.text.replace_range(start..end, &markdown);
         tab.selection = caret..caret;
-        if tab.source || tab.preview {
+        if tab.source {
             self.jump = Some(tab.selection.clone());
         } else {
             tab.edit_block = false;
@@ -337,7 +337,6 @@ impl Editor {
         }
         if !self.tabs[self.active].edit_block
             && !self.tabs[self.active].source
-            && !self.tabs[self.active].preview
             && self.find.is_none()
             && key(cmd, Key::A)
         {
@@ -347,7 +346,11 @@ impl Editor {
             self.find = Some(String::new());
             self.focus_find = true;
         }
-        if key(cmd, Key::Slash) {
+        if key(cmd | Modifiers::ALT, Key::P) {
+            let tab = &mut self.tabs[self.active];
+            tab.preview = tab.source || !tab.preview;
+            tab.source = false;
+        } else if key(cmd, Key::Slash) {
             let tab = &mut self.tabs[self.active];
             tab.source = !tab.source;
         }
@@ -371,12 +374,36 @@ impl Editor {
             }
         }
     }
+    fn insert_table(&mut self) {
+        let tab = &mut self.tabs[self.active];
+        let byte = byte_at(&tab.doc.text, tab.selection.end);
+        let end = tab.doc.text[byte..]
+            .find('\n')
+            .map_or(tab.doc.text.len(), |n| byte + n);
+        let prefix = if end == 0 || tab.doc.text[..end].ends_with("\n\n") {
+            ""
+        } else {
+            "\n\n"
+        };
+        let insert = end + prefix.len();
+        tab.doc.text.insert_str(end, prefix);
+        let caret = slash::insert(&mut tab.doc.text, insert..insert, &slash::TABLE);
+        let suffix = byte_at(&tab.doc.text, caret);
+        if let Some(n) = tab.doc.text[suffix..].find('\n') {
+            tab.doc.text.insert(suffix + n, '\n');
+        }
+        self.jump = Some(caret..caret);
+        tab.doc.dirty = true;
+        tab.edited = Some(Instant::now());
+    }
     fn toolbar(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::top("commands").show(ctx, |ui| {
             ui.add_space(4.);
             ui.horizontal(|ui| {
                 ui.style_mut().visuals.button_frame = false;
                 ui.spacing_mut().button_padding = egui::vec2(8., 5.);
+                ui.label(egui::RichText::new("Folio").strong().size(19.));
+                ui.separator();
                 ui.toggle_value(&mut self.show_outline, "Outline");
                 ui.separator();
                 ui.menu_button("File", |ui| {
@@ -404,59 +431,6 @@ impl Editor {
                                 }
                             }
                         }
-                    }
-                });
-                ui.menu_button("Format", |ui| {
-                    for (name, f) in [
-                        ("Paragraph", Format::Block("")),
-                        ("Heading 1", Format::Block("# ")),
-                        ("Heading 2", Format::Block("## ")),
-                        ("Heading 3", Format::Block("### ")),
-                        ("Heading 4", Format::Block("#### ")),
-                        ("Heading 5", Format::Block("##### ")),
-                        ("Heading 6", Format::Block("###### ")),
-                        ("Strikethrough", Format::Wrap("~~")),
-                        ("Bold", Format::Wrap("**")),
-                        ("Italic", Format::Wrap("*")),
-                        ("Inline code", Format::Wrap("`")),
-                        ("Bullet list", Format::Block("- ")),
-                        ("Numbered list", Format::Block("1. ")),
-                        ("Quote", Format::Block("> ")),
-                        ("Toggle task", Format::Task),
-                    ] {
-                        if ui.button(name).clicked() {
-                            self.apply(f);
-                            ui.close_menu();
-                        }
-                    }
-                    for (name, image) in [("Insert link", false), ("Insert image", true)] {
-                        if ui.button(name).clicked() {
-                            self.insert_link(image);
-                            ui.close_menu();
-                        }
-                    }
-                    if ui.button("Insert table").clicked() {
-                        let tab = &mut self.tabs[self.active];
-                        let byte = byte_at(&tab.doc.text, tab.selection.end);
-                        let end = tab.doc.text[byte..]
-                            .find('\n')
-                            .map_or(tab.doc.text.len(), |n| byte + n);
-                        let prefix = if end == 0 || tab.doc.text[..end].ends_with("\n\n") {
-                            ""
-                        } else {
-                            "\n\n"
-                        };
-                        let insert = end + prefix.len();
-                        tab.doc.text.insert_str(end, prefix);
-                        let caret = slash::insert(&mut tab.doc.text, insert..insert, &slash::TABLE);
-                        let suffix = byte_at(&tab.doc.text, caret);
-                        if let Some(n) = tab.doc.text[suffix..].find('\n') {
-                            tab.doc.text.insert(suffix + n, '\n');
-                        }
-                        self.jump = Some(caret..caret);
-                        tab.doc.dirty = true;
-                        tab.edited = Some(Instant::now());
-                        ui.close_menu();
                     }
                 });
                 ui.menu_button("Style", |ui| {
@@ -491,6 +465,87 @@ impl Editor {
                 });
             });
             ui.add_space(4.);
+            ui.separator();
+            ui.horizontal_wrapped(|ui| {
+                ui.add_space(8.);
+                ui.spacing_mut().interact_size.y = 29.;
+                ui.visuals_mut().button_frame = false;
+                ui.spacing_mut().button_padding = egui::vec2(8., 5.);
+                ui.menu_button("Text style", |ui| {
+                    for (name, prefix) in [
+                        ("Paragraph", ""),
+                        ("Heading 1", "# "),
+                        ("Heading 2", "## "),
+                        ("Heading 3", "### "),
+                        ("Heading 4", "#### "),
+                        ("Heading 5", "##### "),
+                        ("Heading 6", "###### "),
+                    ] {
+                        if ui.button(name).clicked() {
+                            self.apply(Format::Block(prefix));
+                            ui.close_menu();
+                        }
+                    }
+                });
+                ui.separator();
+                for (caption, help, command) in [
+                    (
+                        egui::RichText::new("B").strong(),
+                        "Bold",
+                        Format::Wrap("**"),
+                    ),
+                    (
+                        egui::RichText::new("I").italics(),
+                        "Italic",
+                        Format::Wrap("*"),
+                    ),
+                    (
+                        egui::RichText::new("S").strikethrough(),
+                        "Strikethrough",
+                        Format::Wrap("~~"),
+                    ),
+                    (
+                        egui::RichText::new("</>").monospace(),
+                        "Inline code",
+                        Format::Wrap("`"),
+                    ),
+                    (
+                        egui::RichText::new("Quote"),
+                        "Block quote",
+                        Format::Block("> "),
+                    ),
+                    (
+                        egui::RichText::new("• List"),
+                        "Bullet list",
+                        Format::Block("- "),
+                    ),
+                    (
+                        egui::RichText::new("1. List"),
+                        "Numbered list",
+                        Format::Block("1. "),
+                    ),
+                    (egui::RichText::new("Task"), "Toggle task", Format::Task),
+                ] {
+                    if ui
+                        .add(egui::Button::new(caption.size(15.)).min_size(egui::vec2(32., 30.)))
+                        .on_hover_text(help)
+                        .clicked()
+                    {
+                        self.apply(command);
+                    }
+                }
+                ui.separator();
+                if ui.button("Table").clicked() {
+                    self.insert_table();
+                }
+                if ui.button("Image").clicked() {
+                    self.insert_link(true);
+                }
+                if ui.button("Link").clicked() {
+                    self.insert_link(false);
+                }
+            });
+            ui.add_space(3.);
             if self.tabs.len() > 1 {
                 egui::ScrollArea::horizontal().show(ui, |ui| {
                     ui.horizontal(|ui| {
@@ -530,6 +585,7 @@ impl Editor {
         });
     }
     fn editor(&mut self, ctx: &egui::Context) {
+        let mut bubble_action = None;
         let tab = &mut self.tabs[self.active];
         let document_id = egui::Id::new(("editor", tab.id));
         if self.show_outline {
@@ -564,23 +620,33 @@ impl Editor {
         });
         if !tab.source && tab.preview {
             let render = |ui: &mut egui::Ui| {
-                ui.strong("Preview");
-                ui.separator();
-                egui::ScrollArea::vertical()
-                    .id_salt(("preview", tab.id))
+                let ink = egui::Color32::from_rgb(214, 225, 237);
+                egui::Frame::new()
+                    .fill(egui::Color32::from_rgb(27, 37, 51))
+                    .inner_margin(egui::Margin::same(16))
                     .show(ui, |ui| {
-                        let base = tab.doc.path.as_deref().and_then(|p| p.parent());
-                        window::preview(
-                            ui,
-                            &mut self.preview_cache,
-                            &tab.doc.text,
-                            base,
-                            self.text_size,
-                        );
+                        ui.set_min_size(ui.available_size());
+                        ui.label(egui::RichText::new("Markdown").strong().color(ink));
+                        ui.add_space(10.);
+                        egui::ScrollArea::both()
+                            .id_salt(("source output", tab.id))
+                            .show(ui, |ui| {
+                                ui.add(
+                                    egui::Label::new(
+                                        egui::RichText::new(&tab.doc.text)
+                                            .monospace()
+                                            .color(ink)
+                                            .size(self.text_size * 0.85),
+                                    )
+                                    .extend()
+                                    .selectable(true),
+                                );
+                            });
                     });
             };
             if ctx.available_rect().width() > 610. {
                 egui::SidePanel::right("preview")
+                    .frame(egui::Frame::NONE)
                     .default_width(ctx.available_rect().width() * 0.47)
                     .show(ctx, render);
             } else {
@@ -597,7 +663,7 @@ impl Editor {
             )
             .show(ctx, |ui| {
                 let target = self.jump.take();
-                let visual = !tab.source && !tab.preview;
+                let visual = !tab.source;
                 let ranges = if visual {
                     blocks::ranges(&tab.doc.text)
                 } else {
@@ -1015,6 +1081,72 @@ impl Editor {
                                     }
                                 }
                             }
+                            if visual
+                                && !tab.selection.is_empty()
+                                && self.find.is_none()
+                                && self.link.is_none()
+                                && let Some(cursor) = output.cursor_range
+                            {
+                                let start = output
+                                    .galley
+                                    .pos_from_cursor(&cursor.primary)
+                                    .translate(output.galley_pos.to_vec2());
+                                if ui.clip_rect().intersects(start)
+                                    && !ctx.input(|i| i.pointer.is_decidedly_dragging())
+                                {
+                                    let pos = egui::pos2(
+                                        start.left().clamp(
+                                            ui.clip_rect().left(),
+                                            (ui.clip_rect().right() - 150.)
+                                                .max(ui.clip_rect().left()),
+                                        ),
+                                        (start.top() - 38.).max(ui.clip_rect().top()),
+                                    );
+                                    egui::Area::new(id.with("selection tools"))
+                                        .order(egui::Order::Foreground)
+                                        .fixed_pos(pos)
+                                        .show(ctx, |ui| {
+                                            egui::Frame::popup(ui.style()).inner_margin(5.).show(
+                                                ui,
+                                                |ui| {
+                                                    ui.horizontal(|ui| {
+                                                        for (caption, label, cmd) in [
+                                                            (
+                                                                egui::RichText::new("B").strong(),
+                                                                "Bold",
+                                                                Some(Format::Wrap("**")),
+                                                            ),
+                                                            (
+                                                                egui::RichText::new("I").italics(),
+                                                                "Italic",
+                                                                Some(Format::Wrap("*")),
+                                                            ),
+                                                            (
+                                                                egui::RichText::new("</>")
+                                                                    .monospace(),
+                                                                "Inline code",
+                                                                Some(Format::Wrap("`")),
+                                                            ),
+                                                            (
+                                                                egui::RichText::new("Link"),
+                                                                "Insert link",
+                                                                None,
+                                                            ),
+                                                        ] {
+                                                            if ui
+                                                                .button(caption)
+                                                                .on_hover_text(label)
+                                                                .clicked()
+                                                            {
+                                                                bubble_action = Some(cmd);
+                                                            }
+                                                        }
+                                                    });
+                                                },
+                                            );
+                                        });
+                                }
+                            }
                             if let Some(target) = target {
                                 let c = output
                                     .galley
@@ -1144,6 +1276,13 @@ impl Editor {
                     },
                 );
             });
+        if let Some(command) = bubble_action {
+            if let Some(format) = command {
+                self.apply(format);
+            } else {
+                self.insert_link(false);
+            }
+        }
     }
 }
 
@@ -1290,8 +1429,8 @@ fn configure_fonts(ctx: &egui::Context) {
         let dark = style.visuals.dark_mode;
         let v = &mut style.visuals;
         if dark {
-            v.panel_fill = egui::Color32::from_rgb(30, 34, 35);
-            v.window_fill = egui::Color32::from_rgb(40, 46, 46);
+            v.panel_fill = egui::Color32::from_rgb(28, 32, 39);
+            v.window_fill = egui::Color32::from_rgb(39, 45, 55);
             v.override_text_color = Some(egui::Color32::from_rgb(231, 233, 225));
             v.selection.bg_fill = egui::Color32::from_rgb(49, 89, 84);
         }

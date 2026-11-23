@@ -3,16 +3,108 @@ use eframe::egui;
 use pulldown_cmark::{Event, Parser, Tag};
 use std::ops::Range;
 
+#[derive(Clone, Copy)]
+enum TableAction {
+    RowBefore,
+    RowAfter,
+    RemoveRow,
+    ColumnLeft,
+    ColumnRight,
+    RemoveColumn,
+    Align(&'static str),
+    Remove,
+}
+
 struct Table {
+    alignment: Vec<pulldown_cmark::Alignment>,
     rows: Vec<Vec<Range<usize>>>,
     end: usize,
     start: usize,
 }
 
 impl Table {
+    fn change(&self, text: &mut String, row: usize, col: usize, action: TableAction) {
+        if matches!(action, TableAction::Remove) {
+            text.replace_range(self.start..self.end, "");
+            return;
+        }
+        // Split only on actual pipe delimiters. Keep escaped pipes and spare
+        // cells in ragged source rows when changing the table structure.
+        let mut rows: Vec<Vec<String>> = text[self.start..self.end]
+            .lines()
+            .map(|line| {
+                let mut cells = Vec::new();
+                let line = line.trim();
+                let mut start = 0;
+                let mut escaped = false;
+                for (i, c) in line.char_indices() {
+                    if c == '|' && !escaped {
+                        cells.push(line[start..i].trim().to_owned());
+                        start = i + 1;
+                    }
+                    escaped = c == '\\' && !escaped;
+                }
+                cells.push(line[start..].trim().to_owned());
+                if line.starts_with('|') {
+                    cells.remove(0);
+                }
+                if start == line.len() && line.ends_with('|') {
+                    cells.pop();
+                }
+                cells
+            })
+            .collect();
+        let cols = self.rows[0].len();
+        let index = if row == 0 { 0 } else { row + 1 };
+        match action {
+            TableAction::RowBefore | TableAction::RowAfter => {
+                let at = if row == 0 {
+                    2
+                } else {
+                    index + usize::from(matches!(action, TableAction::RowAfter))
+                };
+                rows.insert(at, vec![String::new(); cols]);
+            }
+            TableAction::RemoveRow if row > 0 => {
+                rows.remove(index);
+            }
+            TableAction::ColumnLeft | TableAction::ColumnRight => {
+                let at = col + usize::from(matches!(action, TableAction::ColumnRight));
+                for (i, line) in rows.iter_mut().enumerate() {
+                    if line.len() < at {
+                        line.resize(at, String::new());
+                    }
+                    line.insert(
+                        at,
+                        match i {
+                            0 => "Column",
+                            1 => "---",
+                            _ => "",
+                        }
+                        .into(),
+                    );
+                }
+            }
+            TableAction::RemoveColumn if cols > 1 => {
+                for line in &mut rows {
+                    if col < line.len() {
+                        line.remove(col);
+                    }
+                }
+            }
+            TableAction::Align(marker) => rows[1][col] = marker.into(),
+            _ => return,
+        }
+        let output = rows
+            .into_iter()
+            .map(|cells| format!("| {} |", cells.join(" | ")))
+            .collect::<Vec<_>>()
+            .join("\n");
+        text.replace_range(self.start..self.end, &output);
+    }
     fn parse(text: &str) -> Option<Self> {
         let mut events = Parser::new_ext(text, crate::blocks::options()).into_offset_iter();
-        let (Event::Start(Tag::Table(_)), span) = events.next()? else {
+        let (Event::Start(Tag::Table(alignment)), span) = events.next()? else {
             return None;
         };
         if !text[span.end..].trim().is_empty() {
@@ -27,11 +119,98 @@ impl Table {
             }
         }
         Some(Self {
+            alignment,
             rows,
             start: span.start,
             end: text[..span.end].trim_end_matches(['\r', '\n']).len(),
         })
     }
+}
+
+/// A single grid for read mode keeps cell widths stable when entering a table.
+pub fn preview(ui: &mut egui::Ui, text: &str, size: f32) -> Option<Option<usize>> {
+    let table = Table::parse(text)?;
+    // Delegate embedded media and links to the full CommonMark viewer.
+    if text.contains('[') || text.contains('<') {
+        return None;
+    }
+    let cols = table.rows.first()?.len().max(1);
+    let width = ((ui.available_width() - 1.) / cols as f32).max(64.);
+    let mut hit = None;
+    egui::ScrollArea::horizontal().show(ui, |ui| {
+        ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
+        for (row, cells) in table.rows.iter().enumerate() {
+            let jobs: Vec<_> = cells
+                .iter()
+                .map(|span| {
+                    let raw = text[span.clone()].trim();
+                    let mut job = crate::window::layout(
+                        raw,
+                        width - 20.,
+                        ui.visuals().text_color(),
+                        false,
+                        0,
+                        size * 0.93,
+                    );
+                    if row == 0 {
+                        for s in &mut job.sections {
+                            s.format.font_id.family = egui::FontFamily::Name("Bold".into());
+                        }
+                    }
+                    ui.fonts(|f| f.layout_job(job))
+                })
+                .collect();
+            let height = jobs.iter().map(|g| g.size().y).fold(size, f32::max) + 14.;
+            ui.horizontal(|ui| {
+                for (col, (span, galley)) in cells.iter().zip(jobs).enumerate() {
+                    let (rect, response) =
+                        ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::click());
+                    let header = if ui.visuals().dark_mode {
+                        egui::Color32::from_rgb(47, 57, 68)
+                    } else {
+                        egui::Color32::from_rgb(231, 237, 241)
+                    };
+                    ui.painter().rect_filled(
+                        rect,
+                        0.,
+                        if row == 0 {
+                            header
+                        } else {
+                            ui.visuals().panel_fill
+                        },
+                    );
+                    ui.painter().rect_stroke(
+                        rect,
+                        0.,
+                        ui.visuals().widgets.noninteractive.bg_stroke,
+                        egui::StrokeKind::Inside,
+                    );
+                    let inset = match table.alignment[col] {
+                        pulldown_cmark::Alignment::Right => width - galley.size().x - 10.,
+                        pulldown_cmark::Alignment::Center => (width - galley.size().x) * 0.5,
+                        _ => 10.,
+                    };
+                    let origin = rect.min + egui::vec2(inset.max(4.), 7.);
+                    if response.clicked()
+                        && let Some(pos) = response.interact_pointer_pos()
+                    {
+                        let raw = &text[span.clone()];
+                        let start = span.start + raw.len() - raw.trim_start().len();
+                        hit = Some(
+                            start
+                                + crate::document::byte_at(
+                                    raw.trim(),
+                                    galley.cursor_from_pos(pos - origin).ccursor.index,
+                                ),
+                        );
+                    }
+                    ui.painter()
+                        .galley(origin, galley, ui.visuals().text_color());
+                }
+            });
+        }
+    });
+    Some(hit)
 }
 
 pub fn edit(
@@ -41,7 +220,14 @@ pub fn edit(
     size: f32,
 ) -> Option<(bool, Option<Range<usize>>)> {
     let table = Table::parse(text)?;
+    let focus = ui
+        .ctx()
+        .data_mut(|d| d.remove_temp::<usize>(ui.id().with("cell focus")))
+        .map(|at| at..at)
+        .or(focus);
     let mut replacement = None;
+    let mut structural = None;
+    let mut next_cell = None;
     let mut selection = None;
     let cols = table.rows.first()?.len().max(1);
     let width = ((ui.available_width() - 8. * cols as f32) / cols as f32).max(45.);
@@ -92,11 +278,64 @@ pub fn edit(
                         state.store(ui.ctx(), id);
                         ui.memory_mut(|m| m.request_focus(id));
                     }
-                    let out = egui::TextEdit::singleline(&mut value)
-                        .id(id)
-                        .desired_width(width)
-                        .layouter(&mut layout)
-                        .show(ui);
+                    if ui.memory(|m| m.has_focus(id))
+                        && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Tab))
+                    {
+                        if col + 1 < cols {
+                            next_cell = Some((row, col + 1));
+                        } else {
+                            next_cell = Some((row + 1, 0));
+                            if row + 1 == table.rows.len() {
+                                structural = Some((row, col, TableAction::RowAfter));
+                            }
+                        }
+                    }
+                    let fill = if row == 0 {
+                        ui.visuals().faint_bg_color
+                    } else {
+                        ui.visuals().panel_fill
+                    };
+                    let border = ui.visuals().widgets.noninteractive.bg_stroke;
+                    let out = egui::Frame::new()
+                        .fill(fill)
+                        .stroke(border)
+                        .inner_margin(egui::Margin::symmetric(6, 4))
+                        .show(ui, |ui| {
+                            egui::TextEdit::singleline(&mut value)
+                                .id(id)
+                                .frame(false)
+                                .desired_width((width - 14.).max(35.))
+                                .layouter(&mut layout)
+                                .show(ui)
+                        })
+                        .inner;
+                    out.response.context_menu(|ui| {
+                        for (label, action, enabled) in [
+                            ("Insert row above", TableAction::RowBefore, row > 0),
+                            ("Insert row below", TableAction::RowAfter, true),
+                            ("Delete row", TableAction::RemoveRow, row > 0),
+                            ("Insert column left", TableAction::ColumnLeft, true),
+                            ("Insert column right", TableAction::ColumnRight, true),
+                            ("Delete column", TableAction::RemoveColumn, cols > 1),
+                            ("Align left", TableAction::Align(":---"), true),
+                            ("Align center", TableAction::Align(":---:"), true),
+                            ("Align right", TableAction::Align("---:"), true),
+                            ("Remove table", TableAction::Remove, true),
+                        ] {
+                            if matches!(
+                                action,
+                                TableAction::ColumnLeft
+                                    | TableAction::Align(":---")
+                                    | TableAction::Remove
+                            ) {
+                                ui.separator();
+                            }
+                            if ui.add_enabled(enabled, egui::Button::new(label)).clicked() {
+                                structural = Some((row, col, action));
+                                ui.close_menu();
+                            }
+                        }
+                    });
                     if out.response.has_focus()
                         && let Some(cursor) = out.cursor_range
                     {
@@ -133,22 +372,28 @@ pub fn edit(
             });
         }
     });
-    if ui.small_button("+ Row").clicked() {
-        replacement = Some((table.end..table.end, format!("\n|{}", "   |".repeat(cols))));
+    ui.horizontal(|ui| {
+        if ui.small_button("+ Row").clicked() {
+            structural = Some((table.rows.len() - 1, 0, TableAction::RowAfter));
+        }
+        if ui.small_button("+ Column").clicked() {
+            structural = Some((0, cols - 1, TableAction::ColumnRight));
+        }
+    });
+    if let Some((row, col)) = next_cell {
+        if let Some((r, c, action)) = structural.take() {
+            table.change(text, r, c, action);
+        }
+        let updated = Table::parse(text)?;
+        let span = updated.rows.get(row)?.get(col)?;
+        let at = span.start + text[span.clone()].len() - text[span.clone()].trim_start().len();
+        ui.ctx()
+            .data_mut(|d| d.insert_temp(ui.id().with("cell focus"), at));
+        ui.ctx().request_repaint();
+        return Some((row >= table.rows.len(), Some(at..at)));
     }
-    if ui.small_button("+ Column").clicked() {
-        let mut position = table.start;
-        let mut ends = Vec::new();
-        for line in text[table.start..table.end].split_inclusive('\n').take(2) {
-            let trimmed = line.trim_end();
-            ends.push((position + trimmed.len(), trimmed.ends_with('|')));
-            position += line.len();
-        }
-        for (index, (end, trailing_pipe)) in ends.into_iter().enumerate().rev() {
-            let prefix = if trailing_pipe { "" } else { " |" };
-            let cell = if index == 0 { " Column |" } else { " --- |" };
-            text.insert_str(end, &format!("{prefix}{cell}"));
-        }
+    if let Some((row, col, action)) = structural {
+        table.change(text, row, col, action);
         return Some((true, Some(table.start..table.start)));
     }
     let changed = replacement.is_some();
@@ -161,6 +406,50 @@ pub fn edit(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn contextual_table_edits_preserve_escaped_content() {
+        let mut md = "| A | B |\n| --- | ---: |\n| a\\|b | 2 |\n\n".to_owned();
+        for (row, col, action) in [
+            (1, 1, TableAction::RowBefore),
+            (1, 0, TableAction::ColumnLeft),
+            (1, 2, TableAction::Align(":---:")),
+            (1, 0, TableAction::RemoveRow),
+            (1, 0, TableAction::RemoveColumn),
+        ] {
+            Table::parse(&md).unwrap().change(&mut md, row, col, action);
+        }
+        assert_eq!(md, "| A | B |\n| --- | :---: |\n| a\\|b | 2 |\n\n");
+    }
+    #[test]
+    fn tab_from_last_cell_creates_row_and_keeps_typing_in_table() {
+        let ctx = egui::Context::default();
+        let mut text = "| A | B |\n| --- | --- |\n| first | last |".to_owned();
+        let n = text.find("last").unwrap();
+        let tab = egui::Event::Key {
+            key: egui::Key::Tab,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Default::default(),
+        };
+        for (focus, events) in [
+            (Some(n..n), vec![]),
+            (None, vec![tab]),
+            (None, vec![egui::Event::Text("next".into())]),
+        ] {
+            let _ = ctx.run(
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default()
+                        .show(ctx, |ui| edit(ui, &mut text, focus.clone(), 17.));
+                },
+            );
+        }
+        assert!(text.ends_with("| next |  |"), "{text}");
+    }
     #[test]
     fn typing_in_a_focused_cell_updates_only_that_cell() {
         let ctx = egui::Context::default();

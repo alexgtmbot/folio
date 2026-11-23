@@ -58,23 +58,38 @@ impl Link {
 
     pub fn show(&mut self, ctx: &egui::Context) -> Option<Option<String>> {
         let modal = egui::Modal::new("insert link".into()).show(ctx, |ui| {
+            ui.set_min_width(310.);
             ui.heading(if self.image {
                 "Insert image"
             } else {
                 "Insert link"
             });
+            ui.add_space(8.);
             ui.label(if self.image {
                 "Alternative text"
             } else {
                 "Link text"
             });
-            let label = ui.text_edit_singleline(&mut self.label);
+            let label = ui.add(
+                egui::TextEdit::singleline(&mut self.label)
+                    .desired_width(f32::INFINITY)
+                    .hint_text("Display text"),
+            );
             ui.label(if self.image {
                 "Image path"
             } else {
                 "URL or file path"
             });
-            let url = ui.text_edit_singleline(&mut self.destination);
+            let url = ui.add(
+                egui::TextEdit::singleline(&mut self.destination)
+                    .desired_width(f32::INFINITY)
+                    .hint_text(if self.image {
+                        "images/photo.png"
+                    } else {
+                        "https://example.com"
+                    }),
+            );
+            ui.add_space(8.);
             if self.first_frame {
                 if self.label.is_empty() {
                     label.request_focus()
