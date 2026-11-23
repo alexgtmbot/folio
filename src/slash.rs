@@ -150,6 +150,14 @@ pub fn matching(query: &str) -> impl Iterator<Item = &'static Command> + '_ {
     matches.into_iter().map(|(_, command)| command)
 }
 
+fn split_quote_prefix(line: &str) -> (&str, &str) {
+    let mut body = line;
+    while let Some(after) = body.trim_start_matches([' ', '\t']).strip_prefix('>') {
+        body = after.strip_prefix([' ', '\t']).unwrap_or(after);
+    }
+    line.split_at(line.len() - body.len())
+}
+
 fn list_content(line: &str) -> Option<(&str, usize)> {
     let body = line.trim_start_matches(' ');
     let (marker, rest) = body.split_once(' ')?;
@@ -177,7 +185,9 @@ pub fn query(text: &str, selection: &Range<usize>) -> Option<Range<usize>> {
         .rsplit('\n')
         .next()?
         .trim_start_matches([' ', '\t']);
-    let line = list_content(line).map_or(line, |(content, _)| content);
+    let (_, line) = split_quote_prefix(line);
+    let line =
+        list_content(line).map_or(line.trim_start_matches([' ', '\t']), |(content, _)| content);
     let query = line.strip_prefix('/')?;
     if !query.chars().all(|c| c.is_ascii_alphanumeric() || c == ' ') {
         return None;
@@ -196,6 +206,7 @@ pub fn query(text: &str, selection: &Range<usize>) -> Option<Range<usize>> {
 
 pub fn insert(text: &mut String, range: Range<usize>, command: &Command) -> usize {
     let prefix = text[..range.start].rsplit('\n').next().unwrap_or_default();
+    let (quote, prefix) = split_quote_prefix(prefix);
     let indent = list_content(prefix).map_or(0, |(_, indent)| indent);
     let footnote;
     let template = if command.name == "Footnote" {
@@ -216,7 +227,7 @@ pub fn insert(text: &mut String, range: Range<usize>, command: &Command) -> usiz
     } else {
         command.template
     };
-    let template = template.replace('\n', &format!("\n{}", " ".repeat(indent)));
+    let template = template.replace('\n', &format!("\n{quote}{}", " ".repeat(indent)));
     let (before, after) = template.split_once('◇').expect("command insertion marker");
     let caret = text[..range.start].chars().count() + before.chars().count();
     text.replace_range(range, &format!("{before}{after}"));
@@ -226,6 +237,22 @@ pub fn insert(text: &mut String, range: Range<usize>, command: &Command) -> usiz
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn quoted_commands_preserve_containers_on_every_inserted_line() {
+        let mut text = "> > - /grid".to_owned();
+        let end = text.len();
+        let span = query(&text, &(end..end)).unwrap();
+        let caret = insert(&mut text, span, &TABLE);
+        assert_eq!(
+            text,
+            "> > - | Column | Value |\n> >   | --- | --- |\n> >   |  |   |"
+        );
+        assert_eq!(&text[byte_at(&text, caret)..], " |   |");
+        let code = "> ```\n> /grid\n> ```";
+        let caret = code.find("/grid").unwrap() + 5;
+        assert!(query(code, &(caret..caret)).is_none());
+    }
+
     #[test]
     fn footnote_command_pairs_a_fresh_reference_and_definition() {
         let mut text = "🦀[^1] and [^2]\n\n[^1]: original\n\n/foot".to_owned();
