@@ -17,6 +17,10 @@ ln -s /Applications "$stage/image/Applications"
 version=$(plutil -extract CFBundleShortVersionString raw "$app/Contents/Info.plist")
 file="Folio-$version-macOS-arm64.dmg"
 hdiutil create -quiet -format UDZO -volname Folio -srcfolder "$stage/image" "$stage/$file"
+if [ -n "${SIGN_IDENTITY:-}" ]; then
+    codesign --force --timestamp --sign "$SIGN_IDENTITY" "$stage/$file"
+    codesign --verify --strict "$stage/$file"
+fi
 hdiutil verify "$stage/$file"
 mv "$stage/$file" "target/$file"
 echo "target/$file"
