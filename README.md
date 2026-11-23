@@ -29,13 +29,19 @@ From this checkout, run `cargo run --release --locked`. To open an existing docu
 
 Open local files through **File → Open** or drag them into the window. Each document has its own tab. **Write** opens a single writing canvas. Choose **Split** for a live CommonMark preview, **Source** for literal Markdown, or **Outline** to navigate headings. The preview renders nested lists, tables, task lists, fenced code, blockquotes, links, local images, strikethrough, footnotes, and definition lists. Raw HTML is displayed as text. The outline jumps to headings, and Find selects the next occurrence.
 
+Choose **Format → Heading 1** and type, or start a line with `# `. Write draws the heading in place. Select words and choose **Bold**, or type paired emphasis markers. **Style** controls appearance, text size, and page width. These preferences stay outside the document.
+
+Choose **Format → Insert table** or type `/table` and press Enter. Click a table to edit its cells, use Tab to move between fields, and choose **+ Row** or **+ Column** to expand it. A typed or pasted GitHub-style pipe table opens the same grid. Source shows the saved pipe syntax. Escape returns to the rendered table. [See the table editor](screenshots/table.png).
+
+The test suite checks the parser against all 652 examples in CommonMark 0.31.2 and exercises the preview for each example. Tables, tasks, footnotes, definition lists, and strikethrough are extensions. HTML is inert and remote images are disabled.
+
 In Write mode, type **/** at the beginning of a line and filter by name (for example, **/table**). Use ↑ or ↓ to select, Enter or Tab to insert, or Escape to keep the literal text. Slash commands are disabled inside code blocks. [See the command menu](screenshots/commands.png).
 
 | Command | Mac | Windows / Linux |
 |---|---|---|
 | Open / Save | ⌘O / ⌘S | Ctrl+O / Ctrl+S |
 | Write / Source | ⌘/ | Ctrl+/ |
-| Heading | ⌘1–3 | Ctrl+1–3 |
+| Heading | ⌘1–6 | Ctrl+1–6 |
 | Bold / Italic | ⌘B / ⌘I | Ctrl+B / Ctrl+I |
 | Toggle task | ⇧⌘T | Ctrl+Shift+T |
 

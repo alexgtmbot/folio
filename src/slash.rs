@@ -7,6 +7,11 @@ pub struct Command {
 }
 
 // The diamond marks the insertion point after choosing a command.
+pub const TABLE: Command = Command {
+    name: "Table",
+    template: "| Column | Value |\n| --- | --- |\n| ◇ |   |",
+};
+
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "Heading 1",
@@ -40,10 +45,7 @@ pub const COMMANDS: &[Command] = &[
         name: "Code block",
         template: "```\n◇\n```",
     },
-    Command {
-        name: "Table",
-        template: "| Column | Value |\n| --- | --- |\n| ◇ |   |",
-    },
+    TABLE,
     Command {
         name: "Link",
         template: "[◇](https://)",
@@ -59,6 +61,42 @@ pub const COMMANDS: &[Command] = &[
     Command {
         name: "Footnote",
         template: "[^1]: ◇",
+    },
+    Command {
+        name: "Heading 4",
+        template: "#### ◇",
+    },
+    Command {
+        name: "Heading 5",
+        template: "##### ◇",
+    },
+    Command {
+        name: "Heading 6",
+        template: "###### ◇",
+    },
+    Command {
+        name: "Bold",
+        template: "**◇**",
+    },
+    Command {
+        name: "Italic",
+        template: "*◇*",
+    },
+    Command {
+        name: "Strikethrough",
+        template: "~~◇~~",
+    },
+    Command {
+        name: "Inline code",
+        template: "`◇`",
+    },
+    Command {
+        name: "Definition list",
+        template: "Term\n: ◇",
+    },
+    Command {
+        name: "Reference link",
+        template: "[◇][ref]\n\n[ref]: https://",
     },
 ];
 

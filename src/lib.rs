@@ -1,5 +1,4 @@
 //! File fidelity and editing rules, independent of the window system.
-use std::ops::Range;
 
 #[derive(Default, Clone, Copy)]
 pub struct FileFormat {
@@ -56,54 +55,6 @@ pub fn task_prefix(line: &str) -> (usize, &'static str) {
     }
 }
 
-#[derive(Default)]
-pub struct Fence(Option<(u8, usize)>);
-impl Fence {
-    pub fn contains(&mut self, line: &str) -> bool {
-        let trimmed = line.trim();
-        let marker = trimmed.as_bytes().first().copied().unwrap_or(0);
-        let count = trimmed.bytes().take_while(|&b| b == marker).count();
-        if let Some((ch, n)) = self.0 {
-            if marker == ch && count >= n && count == trimmed.len() {
-                self.0 = None;
-            }
-            return true;
-        }
-        if matches!(marker, b'`' | b'~') && count >= 3 {
-            self.0 = Some((marker, count));
-            return true;
-        }
-        false
-    }
-}
-
-pub fn inline(line: &str, mut visit: impl FnMut(Range<usize>, &str)) {
-    let mut pos = 0;
-    while pos < line.len() {
-        let rest = &line[pos..];
-        let first = rest.chars().next().unwrap();
-        let prev = line[..pos].chars().next_back();
-        if !matches!(prev, Some('\\' | '*' | '_'))
-            && let Some(mark) = ["**", "__", "`", "*", "_"]
-                .into_iter()
-                .find(|m| rest.starts_with(m))
-        {
-            let body = &rest[mark.len()..];
-            if !body.starts_with(char::is_whitespace)
-                && let Some((end, _)) = body
-                    .match_indices(mark)
-                    .find(|(i, _)| *i > 0 && !body[..*i].ends_with(char::is_whitespace))
-            {
-                let stop = pos + mark.len() * 2 + end;
-                visit(pos..stop, mark);
-                pos = stop;
-                continue;
-            }
-        }
-        pos += first.len_utf8();
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -128,20 +79,6 @@ mod tests {
             ("  # code", 0),
         ] {
             assert_eq!(block_prefix(s), n);
-        }
-        let s = "🦀 **café** and `六`";
-        let mut spans = Vec::new();
-        inline(s, |r, _| spans.push(&s[r]));
-        assert_eq!(spans, ["**café**", "`六`"]);
-        let mut fence = Fence::default();
-        for (line, code) in [
-            ("````rust", true),
-            ("# inside", true),
-            ("```", true),
-            ("````", true),
-            ("# outside", false),
-        ] {
-            assert_eq!(fence.contains(line), code);
         }
         assert_eq!(task_prefix("- [X] done"), (6, "- [ ] "));
     }

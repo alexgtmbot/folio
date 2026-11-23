@@ -1,0 +1,1 @@
+The unmodified example corpus in commonmark-0.31.2.json comes from John MacFarlane and the CommonMark contributors. [Specification and examples](https://spec.commonmark.org/0.31.2/) · [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/)

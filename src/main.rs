@@ -1,6 +1,8 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+mod blocks;
 mod document;
 mod slash;
+mod table;
 mod window;
 
 use document::{Document, Format, byte_at};
@@ -23,6 +25,7 @@ struct Tab {
     slash_index: usize,
     dismissed: Option<(usize, String)>,
     edited: Option<Instant>,
+    edit_block: bool,
 }
 #[derive(Clone, Copy)]
 enum Closing {
@@ -41,6 +44,8 @@ struct Editor {
     find: Option<String>,
     focus_find: bool,
     show_outline: bool,
+    line_width: f32,
+    text_size: f32,
     jump: Option<Range<usize>>,
 }
 
@@ -57,6 +62,8 @@ impl Editor {
             find: None,
             focus_find: false,
             show_outline: false,
+            line_width: 730.,
+            text_size: 17.,
             jump: None,
         };
         for p in std::env::args_os().skip(1) {
@@ -68,7 +75,9 @@ impl Editor {
         app
     }
     fn add(&mut self, doc: Document) {
+        let edit_block = doc.text.is_empty();
         self.tabs.push(Tab {
+            edit_block,
             id: self.next_id,
             doc,
             source: false,
@@ -80,7 +89,7 @@ impl Editor {
         });
         self.next_id += 1;
         self.active = self.tabs.len() - 1;
-        self.jump = Some(0..0);
+        self.jump = edit_block.then_some(0..0);
     }
     fn open(&mut self, path: &Path) {
         match Document::open(path) {
@@ -204,6 +213,14 @@ impl Editor {
                 self.close_tab();
             }
         }
+        if !self.tabs[self.active].edit_block
+            && !self.tabs[self.active].source
+            && !self.tabs[self.active].preview
+            && self.find.is_none()
+            && key(cmd, Key::A)
+        {
+            self.jump = Some(0..self.tabs[self.active].doc.text.chars().count());
+        }
         if key(cmd, Key::F) {
             self.find = Some(String::new());
             self.focus_find = true;
@@ -220,6 +237,9 @@ impl Editor {
             (cmd, Key::Num1, Format::Block("# ")),
             (cmd, Key::Num2, Format::Block("## ")),
             (cmd, Key::Num3, Format::Block("### ")),
+            (cmd, Key::Num4, Format::Block("#### ")),
+            (cmd, Key::Num5, Format::Block("##### ")),
+            (cmd, Key::Num6, Format::Block("###### ")),
             (shifted, Key::T, Format::Task),
         ] {
             if key(m, k) {
@@ -268,6 +288,10 @@ impl Editor {
                         ("Heading 1", Format::Block("# ")),
                         ("Heading 2", Format::Block("## ")),
                         ("Heading 3", Format::Block("### ")),
+                        ("Heading 4", Format::Block("#### ")),
+                        ("Heading 5", Format::Block("##### ")),
+                        ("Heading 6", Format::Block("###### ")),
+                        ("Strikethrough", Format::Wrap("~~")),
                         ("Bold", Format::Wrap("**")),
                         ("Italic", Format::Wrap("*")),
                         ("Inline code", Format::Wrap("`")),
@@ -280,6 +304,37 @@ impl Editor {
                             ui.close_menu();
                         }
                     }
+                    if ui.button("Insert table").clicked() {
+                        let tab = &mut self.tabs[self.active];
+                        let byte = byte_at(&tab.doc.text, tab.selection.end);
+                        let end = tab.doc.text[byte..]
+                            .find('\n')
+                            .map_or(tab.doc.text.len(), |n| byte + n);
+                        let prefix = if end == 0 || tab.doc.text[..end].ends_with("\n\n") {
+                            ""
+                        } else {
+                            "\n\n"
+                        };
+                        let insert = end + prefix.len();
+                        tab.doc.text.insert_str(end, prefix);
+                        let caret = slash::insert(&mut tab.doc.text, insert..insert, &slash::TABLE);
+                        let suffix = byte_at(&tab.doc.text, caret);
+                        if let Some(n) = tab.doc.text[suffix..].find('\n') {
+                            tab.doc.text.insert(suffix + n, '\n');
+                        }
+                        self.jump = Some(caret..caret);
+                        tab.doc.dirty = true;
+                        tab.edited = Some(Instant::now());
+                        ui.close_menu();
+                    }
+                });
+                ui.menu_button("Style", |ui| {
+                    ui.label("Appearance");
+                    egui::widgets::global_theme_preference_buttons(ui);
+                    ui.add(egui::Slider::new(&mut self.text_size, 13.0..=26.0).text("Text size"));
+                    ui.add(
+                        egui::Slider::new(&mut self.line_width, 480.0..=1050.).text("Page width"),
+                    );
                 });
                 if ui.button("Find").clicked() {
                     self.find = Some(String::new());
@@ -341,7 +396,7 @@ impl Editor {
     }
     fn editor(&mut self, ctx: &egui::Context) {
         let tab = &mut self.tabs[self.active];
-        let id = egui::Id::new(("editor", tab.id));
+        let document_id = egui::Id::new(("editor", tab.id));
         if self.show_outline {
             egui::SidePanel::left("outline")
                 .default_width(155.)
@@ -380,7 +435,13 @@ impl Editor {
                     .id_salt(("preview", tab.id))
                     .show(ui, |ui| {
                         let base = tab.doc.path.as_deref().and_then(|p| p.parent());
-                        window::preview(ui, &mut self.preview_cache, &tab.doc.text, base);
+                        window::preview(
+                            ui,
+                            &mut self.preview_cache,
+                            &tab.doc.text,
+                            base,
+                            self.text_size,
+                        );
                     });
             };
             if ctx.available_rect().width() > 610. {
@@ -401,22 +462,180 @@ impl Editor {
             )
             .show(ctx, |ui| {
                 let target = self.jump.take();
+                let visual = !tab.source && !tab.preview;
+                let ranges = if visual {
+                    blocks::ranges(&tab.doc.text)
+                } else {
+                    std::iter::once(0..tab.doc.text.len()).collect()
+                };
+                if let Some(r) = &target {
+                    tab.selection = r.clone();
+                    tab.edit_block = true;
+                }
+                let selection = target.as_ref().unwrap_or(&tab.selection);
+                let start = byte_at(&tab.doc.text, selection.start);
+                let end = byte_at(
+                    &tab.doc.text,
+                    selection
+                        .end
+                        .saturating_sub(usize::from(!selection.is_empty())),
+                );
+                let first = ranges
+                    .partition_point(|r| r.end <= start)
+                    .min(ranges.len() - 1);
+                let last = ranges
+                    .partition_point(|r| r.end <= end)
+                    .min(ranges.len() - 1);
+                let active = ranges[first].start..ranges[last].end;
+                let offset = tab.doc.text[..active.start].chars().count();
+                let id = document_id.with((visual, active.start));
+                let definitions: Vec<_> = if visual {
+                    pulldown_cmark::Parser::new_ext(&tab.doc.text, blocks::options())
+                        .reference_definitions()
+                        .iter()
+                        .map(|(_, def)| def.span.clone())
+                        .collect()
+                } else {
+                    vec![]
+                };
                 if let Some(r) = &target {
                     let mut state = TextEdit::load_state(ctx, id).unwrap_or_default();
                     state.cursor.set_char_range(Some(CCursorRange::two(
-                        CCursor::new(r.start),
-                        CCursor::new(r.end),
+                        CCursor::new(r.start - offset),
+                        CCursor::new(r.end - offset),
                     )));
                     state.store(ctx, id);
                     ctx.memory_mut(|m| m.request_focus(id));
                 }
-                let gutter = ((ui.available_width() - 730.) * 0.5).max(0.);
+                let gutter = ((ui.available_width() - self.line_width) * 0.5).max(0.);
                 ui.scope_builder(
                     egui::UiBuilder::new().max_rect(ui.max_rect().shrink2(egui::vec2(gutter, 0.))),
                     |ui| {
                         egui::ScrollArea::vertical().id_salt(tab.id).show(ui, |ui| {
                             ui.add_space(14.);
-                            let caret = target.as_ref().unwrap_or(&tab.selection).end;
+                            let base = tab.doc.path.as_deref().and_then(|p| p.parent());
+                            if visual && !tab.edit_block {
+                                for r in &ranges {
+                                    if window::editable_block(
+                                        ui,
+                                        &mut self.preview_cache,
+                                        &tab.doc.text,
+                                        r,
+                                        &definitions,
+                                        base,
+                                        self.text_size,
+                                    ) {
+                                        let pos = tab.doc.text[..r.start].chars().count()
+                                            + folio::block_prefix(&tab.doc.text[r.clone()]);
+                                        self.jump = Some(pos..pos);
+                                        ctx.request_repaint();
+                                    }
+                                }
+                                if ui
+                                    .allocate_response(
+                                        egui::vec2(ui.available_width(), 40.),
+                                        egui::Sense::click(),
+                                    )
+                                    .clicked()
+                                {
+                                    let end = tab.doc.text.chars().count();
+                                    self.jump = Some(end..end);
+                                }
+                                return;
+                            }
+                            for r in &ranges[..first] {
+                                if window::editable_block(
+                                    ui,
+                                    &mut self.preview_cache,
+                                    &tab.doc.text,
+                                    r,
+                                    &definitions,
+                                    base,
+                                    self.text_size,
+                                ) {
+                                    let pos = tab.doc.text[..r.start].chars().count()
+                                        + folio::block_prefix(&tab.doc.text[r.clone()]);
+                                    self.jump = Some(pos..pos);
+                                    ctx.request_repaint();
+                                }
+                            }
+                            if visual {
+                                let mut content = tab.doc.text[active.clone()].to_owned();
+                                let focus = target.as_ref().map(|r| {
+                                    byte_at(&content, r.start.saturating_sub(offset))
+                                        ..byte_at(&content, r.end.saturating_sub(offset))
+                                });
+                                if let Some((changed, caret)) = ui
+                                    .push_id(id, |ui| {
+                                        table::edit(ui, &mut content, focus, self.text_size)
+                                    })
+                                    .inner
+                                {
+                                    let delta = content.len() as isize - active.len() as isize;
+                                    if changed {
+                                        tab.doc.text.replace_range(active.clone(), &content);
+                                        tab.doc.dirty = true;
+                                        tab.edited = Some(Instant::now());
+                                    }
+                                    if let Some(r) = caret {
+                                        tab.selection = offset + content[..r.start].chars().count()
+                                            ..offset + content[..r.end].chars().count();
+                                    }
+                                    if ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape))
+                                    {
+                                        tab.edit_block = false;
+                                    }
+                                    if ui.input_mut(|i| {
+                                        i.consume_key(Modifiers::COMMAND, Key::Enter)
+                                    }) {
+                                        let end = active.start + content.len();
+                                        let extra = 2 - content
+                                            .chars()
+                                            .rev()
+                                            .take(2)
+                                            .take_while(|c| *c == '\n')
+                                            .count();
+                                        tab.doc.text.insert_str(end, &"\n".repeat(extra));
+                                        let pos = tab.doc.text[..end + extra].chars().count();
+                                        self.jump = Some(pos..pos);
+                                        tab.doc.dirty = true;
+                                        tab.edited = Some(Instant::now());
+                                        ctx.request_repaint();
+                                        return;
+                                    }
+                                    for old in &ranges[last + 1..] {
+                                        let r = old.start.saturating_add_signed(delta)
+                                            ..old.end.saturating_add_signed(delta);
+                                        let refs = definitions
+                                            .iter()
+                                            .filter(|d| !active.contains(&d.start))
+                                            .map(|d| {
+                                                if d.start >= active.end {
+                                                    d.start.saturating_add_signed(delta)
+                                                        ..d.end.saturating_add_signed(delta)
+                                                } else {
+                                                    d.clone()
+                                                }
+                                            })
+                                            .collect::<Vec<_>>();
+                                        if window::editable_block(
+                                            ui,
+                                            &mut self.preview_cache,
+                                            &tab.doc.text,
+                                            &r,
+                                            &refs,
+                                            base,
+                                            self.text_size,
+                                        ) {
+                                            let pos = tab.doc.text[..r.start].chars().count()
+                                                + folio::block_prefix(&tab.doc.text[r.clone()]);
+                                            self.jump = Some(pos..pos);
+                                        }
+                                    }
+                                    return;
+                                }
+                            }
+                            let caret = target.as_ref().unwrap_or(&tab.selection).end - offset;
                             let mut layouter = |ui: &egui::Ui, s: &str, w: f32| {
                                 ui.fonts(|f| {
                                     f.layout_job(window::layout(
@@ -425,14 +644,50 @@ impl Editor {
                                         ui.visuals().text_color(),
                                         tab.source,
                                         caret,
+                                        self.text_size,
                                     ))
                                 })
                             };
 
                             let has_focus = ui.memory(|m| m.has_focus(id));
+                            if visual
+                                && has_focus
+                                && ui.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::A))
+                            {
+                                self.jump = Some(0..tab.doc.text.chars().count());
+                                ctx.request_repaint();
+                            }
+                            if visual && has_focus && tab.selection.is_empty() {
+                                let here = byte_at(&tab.doc.text, tab.selection.start);
+                                if first > 0
+                                    && here == active.start
+                                    && ui.input_mut(|i| {
+                                        i.consume_key(Modifiers::NONE, Key::ArrowLeft)
+                                    })
+                                {
+                                    let next = tab.selection.start - 1;
+                                    self.jump = Some(next..next);
+                                } else if last + 1 < ranges.len()
+                                    && here >= active.end.saturating_sub(1)
+                                    && ui.input_mut(|i| {
+                                        i.consume_key(Modifiers::NONE, Key::ArrowRight)
+                                    })
+                                {
+                                    let next = tab.doc.text[..active.end].chars().count();
+                                    self.jump = Some(next..next);
+                                }
+                            }
                             let mut choose = false;
                             let mut moved = false;
                             let mut escape = false;
+                            if visual
+                                && ui.input(|i| i.key_pressed(Key::Escape))
+                                && self.find.is_none()
+                                && slash::query(&tab.doc.text, &tab.selection).is_none()
+                            {
+                                tab.edit_block = false;
+                                ctx.request_repaint();
+                            }
                             if has_focus
                                 && !tab.source
                                 && let Some(r) = slash::query(&tab.doc.text, &tab.selection)
@@ -475,8 +730,8 @@ impl Editor {
                             {
                                 let mut state = TextEdit::load_state(ctx, id).unwrap_or_default();
                                 state.cursor.set_char_range(Some(CCursorRange::two(
-                                    CCursor::new(range.start),
-                                    CCursor::new(range.end),
+                                    CCursor::new(range.start - offset),
+                                    CCursor::new(range.end - offset),
                                 )));
                                 state.store(ctx, id);
                                 ui.input_mut(|i| {
@@ -493,18 +748,67 @@ impl Editor {
                                     })
                                 });
                             }
-                            let output = TextEdit::multiline(&mut tab.doc.text)
+                            let mut contents = tab.doc.text[active.clone()].to_owned();
+                            let output = TextEdit::multiline(&mut contents)
                                 .id(id)
                                 .frame(false)
                                 .desired_width(f32::INFINITY)
-                                .desired_rows(24)
+                                .desired_rows(if visual { 1 } else { 24 })
                                 .layouter(&mut layouter)
                                 .show(ui);
+                            let delta = contents.len() as isize - active.len() as isize;
+                            if output.response.changed() {
+                                tab.doc.text.replace_range(active.clone(), &contents);
+                            }
+                            for old in &ranges[last + 1..] {
+                                let r = old.start.saturating_add_signed(delta)
+                                    ..old.end.saturating_add_signed(delta);
+                                // Edits can move reference definitions beyond the active block.
+                                let refs: Vec<_> = definitions
+                                    .iter()
+                                    .filter(|d| !active.contains(&d.start))
+                                    .map(|d| {
+                                        if d.start >= active.end {
+                                            d.start.saturating_add_signed(delta)
+                                                ..d.end.saturating_add_signed(delta)
+                                        } else {
+                                            d.clone()
+                                        }
+                                    })
+                                    .collect();
+                                if window::editable_block(
+                                    ui,
+                                    &mut self.preview_cache,
+                                    &tab.doc.text,
+                                    &r,
+                                    &refs,
+                                    base,
+                                    self.text_size,
+                                ) {
+                                    let pos = tab.doc.text[..r.start].chars().count()
+                                        + folio::block_prefix(&tab.doc.text[r.clone()]);
+                                    self.jump = Some(pos..pos);
+                                    ctx.request_repaint();
+                                }
+                            }
                             if let Some(cursor) = output.cursor_range {
-                                tab.selection = cursor.as_sorted_char_range();
+                                let r = cursor.as_sorted_char_range();
+                                tab.selection = (offset + r.start)..(offset + r.end);
+                                if visual && output.response.changed() {
+                                    let pos = byte_at(&tab.doc.text, tab.selection.end);
+                                    let new_blocks = blocks::ranges(&tab.doc.text);
+                                    let n = new_blocks
+                                        .partition_point(|r| r.end <= pos)
+                                        .min(new_blocks.len() - 1);
+                                    if new_blocks[n].start != active.start {
+                                        self.jump = Some(tab.selection.clone());
+                                    }
+                                }
                             }
                             if let Some(target) = target {
-                                let c = output.galley.from_ccursor(CCursor::new(target.start));
+                                let c = output
+                                    .galley
+                                    .from_ccursor(CCursor::new(target.start - offset));
                                 ui.scroll_to_rect(
                                     output
                                         .galley
@@ -546,7 +850,7 @@ impl Editor {
                                         tab.slash_index = tab.slash_index.min(matches.len() - 1);
                                         let caret = output
                                             .galley
-                                            .from_ccursor(CCursor::new(tab.selection.end));
+                                            .from_ccursor(CCursor::new(tab.selection.end - offset));
                                         let rect = output
                                             .galley
                                             .pos_from_cursor(&caret)
@@ -624,6 +928,10 @@ impl Editor {
 }
 
 impl eframe::App for Editor {
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        storage.set_string("text_size", self.text_size.to_string());
+        storage.set_string("page_width", self.line_width.to_string());
+    }
     fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
         if ctx.input(|i| i.viewport().close_requested())
             && !self.quit
@@ -745,15 +1053,15 @@ fn self_test() {
             egui::CentralPanel::default().show(ctx, |ui| {
                 let mut layout = |ui: &egui::Ui, s: &str, w: f32| {
                     ui.fonts(|f| {
-                        f.layout_job(window::layout(s, w, ui.visuals().text_color(), source, 0))
+                        f.layout_job(window::layout(s, w, ui.visuals().text_color(), source, 0,17.))
                     })
                 };
                 let field = TextEdit::multiline(&mut doc.text)
                     .layouter(&mut layout)
                     .show(ui);
-                assert_eq!(field.galley.text(), doc.text);
+                if source { assert_eq!(field.galley.text(), doc.text); } else { assert_eq!(field.galley.text().replace('\u{200b}', ""), "🦀 Café\n"); }
                 if !source {
-                    window::preview(ui,&mut Default::default(),"Heading\n=======\n\n| A | B |\n|---|---|\n| **one** | ~~two~~ |\n\n> quote\n\n- [x] done\n\nA note[^1]\n\n[^1]: footnote",None);
+                    window::preview(ui,&mut Default::default(),"Heading\n=======\n\n| A | B |\n|---|---|\n| **one** | ~~two~~ |\n\n> quote\n\n- [x] done\n\nA note[^1]\n\n[^1]: footnote",None,17.);
                 }
             });
         });
@@ -776,7 +1084,24 @@ fn main() -> eframe::Result {
         native,
         Box::new(|cc| {
             configure_fonts(&cc.egui_ctx);
-            Ok(Box::new(Editor::new()))
+            let mut editor = Editor::new();
+            if let Some(width) = cc
+                .storage
+                .and_then(|s| s.get_string("page_width"))
+                .and_then(|s| s.parse::<f32>().ok())
+                .filter(|w| w.is_finite())
+            {
+                editor.line_width = width.clamp(480., 1050.);
+            }
+            if let Some(size) = cc
+                .storage
+                .and_then(|s| s.get_string("text_size"))
+                .and_then(|s| s.parse::<f32>().ok())
+                .filter(|x| x.is_finite())
+            {
+                editor.text_size = size.clamp(13., 26.);
+            }
+            Ok(Box::new(editor))
         }),
     )
 }

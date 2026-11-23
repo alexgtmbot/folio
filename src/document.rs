@@ -84,6 +84,11 @@ pub fn format(text: &mut String, selection: Range<usize>, cmd: Format) -> Range<
     let end = byte_at(text, selection.end);
     match cmd {
         Format::Wrap(mark) => {
+            if text[..start].ends_with(mark) && text[end..].starts_with(mark) {
+                text.replace_range(end..end + mark.len(), "");
+                text.replace_range(start - mark.len()..start, "");
+                return selection.start - mark.len()..selection.end - mark.len();
+            }
             text.insert_str(end, mark);
             text.insert_str(start, mark);
             selection.start + mark.len()..selection.end + mark.len()
