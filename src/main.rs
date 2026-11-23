@@ -777,6 +777,44 @@ impl Editor {
                             }
                             if visual && has_focus && tab.selection.is_empty() {
                                 let here = byte_at(&tab.doc.text, tab.selection.start);
+                                let join = if first > 0
+                                    && here == active.start
+                                    && ui.input(|i| {
+                                        i.modifiers == Modifiers::NONE
+                                            && i.key_pressed(Key::Backspace)
+                                    }) {
+                                    blocks::paragraph_separator(
+                                        &tab.doc.text,
+                                        &ranges[first - 1],
+                                        &active,
+                                    )
+                                    .map(|range| (Key::Backspace, range))
+                                } else if last + 1 < ranges.len()
+                                    && ui.input(|i| {
+                                        i.modifiers == Modifiers::NONE && i.key_pressed(Key::Delete)
+                                    })
+                                {
+                                    blocks::paragraph_separator(
+                                        &tab.doc.text,
+                                        &active,
+                                        &ranges[last + 1],
+                                    )
+                                    .filter(|cut| cut.start == here)
+                                    .map(|range| (Key::Delete, range))
+                                } else {
+                                    None
+                                };
+                                if let Some((key, cut)) = join {
+                                    ui.input_mut(|i| i.consume_key(Modifiers::NONE, key));
+                                    let pos = tab.doc.text[..cut.start].chars().count();
+                                    tab.doc.text.replace_range(cut, "");
+                                    tab.selection = pos..pos;
+                                    tab.doc.dirty = true;
+                                    tab.edited = Some(Instant::now());
+                                    self.jump = Some(tab.selection.clone());
+                                    ctx.request_repaint();
+                                    return;
+                                }
                                 if first > 0
                                     && here == active.start
                                     && ui.input_mut(|i| {

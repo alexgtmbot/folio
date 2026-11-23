@@ -66,9 +66,38 @@ pub fn adjacent_caret(text: &str, block: Range<usize>, up: bool, column: usize) 
         + column.min(line[prefix..].trim_end_matches('\r').chars().count())
 }
 
+/// Markdown blank lines separate visual paragraphs. Remove the separator as
+/// one edit, preserving the inline source on either side.
+pub fn paragraph_separator(
+    text: &str,
+    left: &Range<usize>,
+    right: &Range<usize>,
+) -> Option<Range<usize>> {
+    let paragraph = |r: &Range<usize>| {
+        matches!(
+            Parser::new_ext(&text[r.clone()], options()).next(),
+            Some(Event::Start(pulldown_cmark::Tag::Paragraph))
+        )
+    };
+    if !paragraph(left) || !(right.is_empty() || paragraph(right)) {
+        return None;
+    }
+    let end = left.start + text[left.clone()].trim_end_matches(['\r', '\n']).len();
+    (end < right.start).then_some(end..right.start)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn join_paragraphs_preserves_inline_source_and_leaves_structural_blocks_alone() {
+        let mut text = "**été**\n\nsecond\n\n> quote".to_owned();
+        let blocks = ranges(&text);
+        assert!(paragraph_separator(&text, &blocks[1], &blocks[2]).is_none());
+        let cut = paragraph_separator(&text, &blocks[0], &blocks[1]).unwrap();
+        text.replace_range(cut, "");
+        assert_eq!(text, "**été**second\n\n> quote");
+    }
     #[test]
     fn vertical_navigation_lands_in_content() {
         let text = "# 🦀\n\nfirst\nsecond\n\n";
