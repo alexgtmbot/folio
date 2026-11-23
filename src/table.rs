@@ -3,6 +3,8 @@ use eframe::egui;
 use pulldown_cmark::{Event, Parser, Tag};
 use std::ops::Range;
 
+const CELL_PADDING: [char; 2] = [' ', '\t'];
+
 #[derive(Clone, Copy)]
 enum TableAction {
     RowBefore,
@@ -34,17 +36,17 @@ impl Table {
             .lines()
             .map(|line| {
                 let mut cells = Vec::new();
-                let line = line.trim();
+                let line = line.trim_matches(CELL_PADDING);
                 let mut start = 0;
                 let mut escaped = false;
                 for (i, c) in line.char_indices() {
                     if c == '|' && !escaped {
-                        cells.push(line[start..i].trim().to_owned());
+                        cells.push(line[start..i].trim_matches(CELL_PADDING).to_owned());
                         start = i + 1;
                     }
                     escaped = c == '\\' && !escaped;
                 }
-                cells.push(line[start..].trim().to_owned());
+                cells.push(line[start..].trim_matches(CELL_PADDING).to_owned());
                 if line.starts_with('|') {
                     cells.remove(0);
                 }
@@ -178,7 +180,7 @@ pub fn preview(
             let jobs: Vec<_> = cells
                 .iter()
                 .map(|span| {
-                    let raw = text[span.clone()].trim();
+                    let raw = text[span.clone()].trim_matches(CELL_PADDING);
                     let mut job = crate::window::layout(
                         raw,
                         width - 20.,
@@ -238,12 +240,13 @@ pub fn preview(
                         && let Some(pos) = response.interact_pointer_pos()
                     {
                         let raw = &text[span.clone()];
-                        let start = span.start + raw.len() - raw.trim_start().len();
+                        let start =
+                            span.start + raw.len() - raw.trim_start_matches(CELL_PADDING).len();
                         hit = crate::window::BlockAction::Edit(
                             offset
                                 + start
                                 + crate::document::byte_at(
-                                    raw.trim(),
+                                    raw.trim_matches(CELL_PADDING),
                                     galley.cursor_from_pos(pos - origin).ccursor.index,
                                 ),
                         );
@@ -280,11 +283,12 @@ pub fn edit(
             ui.horizontal(|ui| {
                 for (col, span) in cells.iter().enumerate() {
                     let original = &text[span.clone()];
-                    let raw = original.trim();
+                    let raw = original.trim_matches(CELL_PADDING);
                     let start = if raw.is_empty() && !span.is_empty() {
                         span.start + 1
                     } else {
-                        span.start + original.len() - original.trim_start().len()
+                        span.start + original.len()
+                            - original.trim_start_matches(CELL_PADDING).len()
                     };
                     let mut value = raw.replace("\\|", "|");
                     let mut layout = |ui: &egui::Ui, s: &str, width: f32| {
@@ -374,11 +378,12 @@ pub fn edit(
                         if span.is_empty() {
                             let end = text[..span.start].trim_end_matches(['\r', '\n']).len();
                             let first = cells.iter().position(Range::is_empty).unwrap_or(col);
-                            let prefix = if text[..end].trim_end().ends_with('|') {
-                                ""
-                            } else {
-                                "|"
-                            };
+                            let prefix =
+                                if text[..end].trim_end_matches(CELL_PADDING).ends_with('|') {
+                                    ""
+                                } else {
+                                    "|"
+                                };
                             value = format!("{prefix}{} {value} |", " |".repeat(col - first));
                             selection = Some(end + value.len() - 2..end + value.len() - 2);
                             replacement = Some((end..end, value));
@@ -406,7 +411,8 @@ pub fn edit(
         }
         let updated = Table::parse(text)?;
         let span = updated.rows.get(row)?.get(col)?;
-        let at = span.start + text[span.clone()].len() - text[span.clone()].trim_start().len();
+        let at = span.start + text[span.clone()].len()
+            - text[span.clone()].trim_start_matches(CELL_PADDING).len();
         ui.ctx()
             .data_mut(|d| d.insert_temp(ui.id().with("cell focus"), at));
         ui.ctx().request_repaint();
@@ -508,6 +514,15 @@ mod tests {
         }
         assert_eq!(md, "| A | B |\n| --- | :---: |\n| a\\|b | 2 |\n\n");
     }
+    #[test]
+    fn adding_a_row_preserves_typographic_spaces_in_cells() {
+        let mut md = "| A | B |\n| --- | --- |\n|\u{a0}|\u{2003}Paris\u{202f}|".to_owned();
+        Table::parse(&md)
+            .unwrap()
+            .change(&mut md, 1, 0, TableAction::RowAfter);
+        assert!(md.contains("| \u{a0} | \u{2003}Paris\u{202f} |"));
+    }
+
     #[test]
     fn tab_from_last_cell_creates_row_and_keeps_typing_in_table() {
         let ctx = egui::Context::default();
