@@ -327,6 +327,18 @@ pub fn edit(
                         ui.memory_mut(|m| m.request_focus(id));
                     }
                     let focused = ui.memory(|m| m.has_focus(id));
+                    if focused {
+                        ui.input_mut(|input| {
+                            for event in &mut input.events {
+                                if let egui::Event::Paste(text) = event
+                                    && text.contains(['\r', '\n'])
+                                {
+                                    // GFM table cells occupy one source line.
+                                    *text = text.replace("\r\n", " ").replace(['\r', '\n'], " ");
+                                }
+                            }
+                        });
+                    }
                     if focused
                         && (row > 0 || col > 0)
                         && ui.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, egui::Key::Tab))
@@ -604,7 +616,10 @@ mod tests {
         let n = doc.text.find("first").unwrap();
         for (focus, events) in [
             (Some(n..n + 5), vec![]),
-            (None, vec![egui::Event::Text("é|🦀\u{202f}".into())]),
+            (
+                None,
+                vec![egui::Event::Paste("é|🦀\r\nnext\u{202f}".into())],
+            ),
         ] {
             let _ = ctx.run(
                 egui::RawInput {
@@ -619,12 +634,15 @@ mod tests {
             );
         }
         doc.save(&path).unwrap();
-        let expected = original.replace("first", "é\\|🦀\u{202f}");
+        let expected = original.replace("first", "é\\|🦀 next\u{202f}");
         assert_eq!(std::fs::read(&path).unwrap(), expected.as_bytes());
         let reopened = crate::document::Document::open(&path).unwrap();
         let table = Table::parse(&reopened.text).unwrap();
         assert_eq!(table.rows[1].len(), 2);
-        assert_eq!(&reopened.text[table.rows[1][0].clone()], " é\\|🦀\u{202f} ");
+        assert_eq!(
+            &reopened.text[table.rows[1][0].clone()],
+            " é\\|🦀 next\u{202f} "
+        );
     }
 
     #[test]
