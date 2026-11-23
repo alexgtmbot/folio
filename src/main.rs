@@ -149,8 +149,12 @@ impl Editor {
         match Document::open(path) {
             Ok(doc) => {
                 if let Some(i) = self.tabs.iter().position(|t| t.doc.path == doc.path) {
-                    self.active = i;
-                    self.jump = None;
+                    if self.active != i {
+                        self.active = i;
+                        self.jump = self.tabs[i]
+                            .edit_block
+                            .then(|| self.tabs[i].selection.clone());
+                    }
                 } else {
                     self.add(doc);
                 }
@@ -1709,6 +1713,43 @@ mod slash_menu_tests {
         }
         assert!(app.tabs[0].source);
         assert_eq!(app.tabs[0].doc.text, "café!");
+    }
+
+    #[test]
+    fn reopening_an_empty_document_accepts_a_footnote_and_saves_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("Note.md");
+        std::fs::write(&path, "").unwrap();
+        let ctx = egui::Context::default();
+        configure_fonts(&ctx);
+        let mut app = Editor::with_documents([path.clone()]);
+        app.open(&path);
+        let mut frame = eframe::Frame::_new_kittest();
+        let mut run = |events, modifiers| {
+            let input = egui::RawInput {
+                events,
+                modifiers,
+                ..Default::default()
+            };
+            let _ = ctx.run(input, |ctx| eframe::App::update(&mut app, ctx, &mut frame));
+        };
+        let key = |key, modifiers| egui::Event::Key {
+            key,
+            modifiers,
+            pressed: true,
+            repeat: false,
+            physical_key: None,
+        };
+        run(vec![], Modifiers::NONE);
+        run(vec![egui::Event::Text("/footnote".into())], Modifiers::NONE);
+        run(vec![key(Key::Enter, Modifiers::NONE)], Modifiers::NONE);
+        run(vec![], Modifiers::NONE);
+        run(vec![egui::Event::Text("Checked".into())], Modifiers::NONE);
+        run(vec![key(Key::S, Modifiers::COMMAND)], Modifiers::COMMAND);
+        assert_eq!(
+            std::fs::read_to_string(path).unwrap().trim_end(),
+            "[^1]\n\n[^1]: Checked"
+        );
     }
 
     #[test]
