@@ -98,6 +98,20 @@ impl Table {
             text.replace_range(self.start..self.end, "");
             return;
         }
+        if matches!(action, TableAction::RemoveRow) {
+            if row > 0 {
+                let table = &text[self.start..self.end];
+                if let Some((newline, _)) = table.match_indices('\n').nth(row) {
+                    let line = table[newline + 1..].lines().next().unwrap_or_default();
+                    let start = newline - usize::from(table[..newline].ends_with('\r'));
+                    text.replace_range(
+                        self.start + start..self.start + newline + 1 + line.len(),
+                        "",
+                    );
+                }
+            }
+            return;
+        }
         if let TableAction::Align(marker) = action {
             let table = &text[self.start..self.end];
             let start =
@@ -157,9 +171,6 @@ impl Table {
                     index + usize::from(matches!(action, TableAction::RowAfter))
                 };
                 rows.insert(at, vec![String::new(); cols]);
-            }
-            TableAction::RemoveRow if row > 0 => {
-                rows.remove(index);
             }
             TableAction::ColumnLeft | TableAction::ColumnRight => {
                 let at = col + usize::from(matches!(action, TableAction::ColumnRight));
@@ -621,6 +632,29 @@ pub fn edit(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn removing_a_row_preserves_surviving_source_and_trailing_newline() {
+        for newline in ["\n", "\r\n"] {
+            let lines = [
+                "A | B",
+                "----- | :---:",
+                "  café | x\\|y",
+                "remove | this",
+                "last  |  item",
+                "",
+            ];
+            for row in [1, 2, 3] {
+                let mut text = lines.join(newline);
+                Table::parse(&text)
+                    .unwrap()
+                    .change(&mut text, row, 0, TableAction::RemoveRow);
+                let mut remaining = lines.to_vec();
+                remaining.remove(row + 1);
+                assert_eq!(text, remaining.join(newline));
+            }
+        }
+    }
+
     #[test]
     fn aligning_one_column_only_changes_its_delimiter_marker() {
         for (source, expected) in [
