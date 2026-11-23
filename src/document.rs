@@ -69,7 +69,7 @@ impl Document {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Format {
     Block(&'static str),
     Wrap(&'static str),

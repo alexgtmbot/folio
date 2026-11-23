@@ -75,6 +75,35 @@ enum Closing {
     App,
 }
 
+fn format_shortcuts() -> [(Modifiers, Key, Format); 13] {
+    let cmd = Modifiers::COMMAND;
+    let shifted = cmd | Modifiers::SHIFT;
+    [
+        (cmd, Key::B, Format::Wrap("**")),
+        (cmd, Key::I, Format::Wrap("*")),
+        (cmd, Key::E, Format::Wrap("`")),
+        (cmd, Key::Num0, Format::Block("")),
+        (cmd, Key::Num1, Format::Block("# ")),
+        (cmd, Key::Num2, Format::Block("## ")),
+        (cmd, Key::Num3, Format::Block("### ")),
+        (cmd, Key::Num4, Format::Block("#### ")),
+        (cmd, Key::Num5, Format::Block("##### ")),
+        (cmd, Key::Num6, Format::Block("###### ")),
+        (shifted, Key::Num7, Format::Block("1. ")),
+        (shifted, Key::Num8, Format::Block("- ")),
+        (shifted, Key::T, Format::Task),
+    ]
+}
+
+fn shortcut_label(ctx: &egui::Context, action: Format) -> Option<String> {
+    format_shortcuts()
+        .into_iter()
+        .find_map(|(modifiers, key, format)| {
+            (format == action)
+                .then(|| ctx.format_shortcut(&egui::KeyboardShortcut::new(modifiers, key)))
+        })
+}
+
 struct Editor {
     tabs: Vec<Tab>,
     active: usize,
@@ -407,21 +436,7 @@ impl Editor {
             self.jump = Some(tab.selection.clone());
             tab.source = !tab.source;
         }
-        for (m, k, f) in [
-            (cmd, Key::B, Format::Wrap("**")),
-            (cmd, Key::I, Format::Wrap("*")),
-            (cmd, Key::E, Format::Wrap("`")),
-            (cmd, Key::Num0, Format::Block("")),
-            (cmd, Key::Num1, Format::Block("# ")),
-            (cmd, Key::Num2, Format::Block("## ")),
-            (cmd, Key::Num3, Format::Block("### ")),
-            (cmd, Key::Num4, Format::Block("#### ")),
-            (cmd, Key::Num5, Format::Block("##### ")),
-            (cmd, Key::Num6, Format::Block("###### ")),
-            (shifted, Key::Num7, Format::Block("1. ")),
-            (shifted, Key::Num8, Format::Block("- ")),
-            (shifted, Key::T, Format::Task),
-        ] {
+        for (m, k, f) in format_shortcuts() {
             if key(m, k) {
                 self.apply(f);
             }
@@ -550,8 +565,11 @@ impl Editor {
                         ("Heading 5", "##### "),
                         ("Heading 6", "###### "),
                     ] {
-                        if ui.button(name).clicked() {
-                            self.apply(Format::Block(prefix));
+                        let action = Format::Block(prefix);
+                        let button = egui::Button::new(name)
+                            .shortcut_text(shortcut_label(ctx, action).unwrap_or_default());
+                        if ui.add(button).clicked() {
+                            self.apply(action);
                             ui.close_menu();
                         }
                     }
@@ -604,7 +622,10 @@ impl Editor {
                 ] {
                     if ui
                         .add(egui::Button::new(caption.size(15.)).min_size(egui::vec2(32., 30.)))
-                        .on_hover_text(help)
+                        .on_hover_text(
+                            shortcut_label(ctx, command)
+                                .map_or_else(|| help.to_owned(), |keys| format!("{help} ({keys})")),
+                        )
                         .clicked()
                     {
                         self.apply(command);
@@ -1719,6 +1740,29 @@ mod slash_menu_tests {
         }
         assert!(app.tabs[0].source);
         assert_eq!(app.tabs[0].doc.text, "café!");
+    }
+
+    #[test]
+    fn formatting_hints_follow_the_platform_and_registered_shortcuts() {
+        let ctx = egui::Context::default();
+        let _ = ctx.run(Default::default(), |_| {});
+        for os in [
+            egui::os::OperatingSystem::Mac,
+            egui::os::OperatingSystem::Windows,
+            egui::os::OperatingSystem::Nix,
+        ] {
+            ctx.set_os(os);
+            assert_eq!(
+                shortcut_label(&ctx, Format::Block("### ")),
+                Some(
+                    ctx.format_shortcut(&egui::KeyboardShortcut::new(
+                        Modifiers::COMMAND,
+                        Key::Num3
+                    ))
+                )
+            );
+            assert!(shortcut_label(&ctx, Format::Block("> ")).is_none());
+        }
     }
 
     #[test]
