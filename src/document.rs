@@ -124,6 +124,43 @@ pub fn format(text: &mut String, selection: Range<usize>, cmd: Format) -> Range<
     let start = byte_at(text, selection.start);
     let end = byte_at(text, selection.end);
     match cmd {
+        Format::Wrap("`") if start < end => {
+            let content = &text[start..end];
+            for (event, span) in
+                pulldown_cmark::Parser::new_ext(text, crate::blocks::options()).into_offset_iter()
+            {
+                if let pulldown_cmark::Event::Code(value) = event
+                    && span.start < start
+                    && end < span.end
+                    && value.as_ref() == content
+                    && text[span.start..start]
+                        .trim_end_matches(' ')
+                        .bytes()
+                        .all(|b| b == b'`')
+                    && text[end..span.end]
+                        .trim_start_matches(' ')
+                        .bytes()
+                        .all(|b| b == b'`')
+                {
+                    let shift = start - span.start;
+                    text.replace_range(end..span.end, "");
+                    text.replace_range(span.start..start, "");
+                    return selection.start - shift..selection.end - shift;
+                }
+            }
+            let longest = content.split(|c| c != '`').map(str::len).max().unwrap_or(0);
+            let ticks = "`".repeat(longest + 1);
+            let pad = content.starts_with('`')
+                || content.ends_with('`')
+                || (content.starts_with(' ')
+                    && content.ends_with(' ')
+                    && !content.trim_matches(' ').is_empty());
+            let space = if pad { " " } else { "" };
+            text.insert_str(end, &format!("{space}{ticks}"));
+            text.insert_str(start, &format!("{ticks}{space}"));
+            let shift = ticks.len() + space.len();
+            selection.start + shift..selection.end + shift
+        }
         Format::Wrap(mark) => {
             if text[..start].ends_with(mark) && text[end..].starts_with(mark) {
                 text.replace_range(end..end + mark.len(), "");
@@ -432,6 +469,23 @@ mod tests {
         assert_eq!(list_enter("- ", 2), Some((0..2, String::new())));
         assert_eq!(list_enter("```\n- literal", 13), None);
     }
+    #[test]
+    fn visual_inline_code_round_trips_literal_backticks_and_spaces() {
+        for literal in ["call `x` now", "``🦀`", " padded ", "   ", "ordinary"] {
+            let mut md = format!("Use {literal} here");
+            let selection = 4..4 + literal.chars().count();
+            let selected = format(&mut md, selection.clone(), Format::Wrap("`"));
+            assert!(
+                pulldown_cmark::Parser::new(&md).any(
+                    |e| matches!(e, pulldown_cmark::Event::Code(value) if value.as_ref() == literal)
+                ),
+                "{md}"
+            );
+            assert_eq!(format(&mut md, selected, Format::Wrap("`")), selection);
+            assert_eq!(md, format!("Use {literal} here"));
+        }
+    }
+
     #[test]
     fn toggle_off_after_typing_leaves_delimiters_intact() {
         for (mark, source) in [
