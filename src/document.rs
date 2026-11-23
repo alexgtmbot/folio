@@ -558,6 +558,19 @@ pub fn block_enter(text: &str, caret: usize) -> Option<(Range<usize>, String)> {
     let body = before.trim_start_matches([' ', '\t']);
     let indent = &before[..before.len() - body.len()];
     let rest_of_line = text[end..].split('\n').next()?;
+    if !body.is_empty() && rest_of_line.is_empty() {
+        let mut depth = 0;
+        for (event, span) in Parser::new_ext(text, crate::blocks::options()).into_offset_iter() {
+            match event {
+                Event::Start(Tag::Paragraph) if depth == 0 && span.contains(&(end - 1)) => {
+                    return Some((caret..caret, "\n\n".into()));
+                }
+                Event::Start(_) => depth += 1,
+                Event::End(_) => depth -= 1,
+                _ => {}
+            }
+        }
+    }
     if body.starts_with('>') {
         let mut prefix_end = indent.len();
         let mut last_marker = prefix_end;
@@ -669,6 +682,15 @@ pub fn block_enter(text: &str, caret: usize) -> Option<(Range<usize>, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn enter_after_top_level_prose_starts_a_markdown_paragraph() {
+        let text = "Notes\n\nCafé **today**";
+        let end = text.chars().count();
+        assert_eq!(block_enter(text, end), Some((end..end, "\n\n".into())));
+        let nested = "- item\n  continuation";
+        assert!(block_enter(nested, nested.len()).is_none());
+    }
+
     #[test]
     fn nest_and_lift_preserve_task_subtree_and_unicode_caret() {
         let original = "10. parent\n11. [x] café\n    - child\n12. last";
