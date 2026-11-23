@@ -448,7 +448,7 @@ pub fn layout(
                 shown.push(if c == '\n' || (line_start && i < indent) {
                     c
                 } else if i < indent + quote_prefix && c == '>' {
-                    '│'
+                    '|'
                 } else if i < indent + quote_prefix && trimmed.starts_with('>') {
                     c
                 } else if bullet && !task_bullet && i == indent {
@@ -858,7 +858,7 @@ mod tests {
     fn visual_quotes_keep_nesting_and_literal_greater_than_signs() {
         let md = "> outer\n> > inner > literal";
         let job = layout(md, 480., Color32::WHITE, false, 0, 17.);
-        assert_eq!(job.text, "│ outer\n│ │ inner > literal");
+        assert_eq!(job.text, "| outer\n| | inner > literal");
     }
 
     #[test]
