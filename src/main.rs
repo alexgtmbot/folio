@@ -1295,6 +1295,42 @@ impl Editor {
                             if let Some(cursor) = output.cursor_range {
                                 let r = cursor.as_sorted_char_range();
                                 tab.selection = (offset + r.start)..(offset + r.end);
+                                if visual
+                                    && has_focus
+                                    && r.is_empty()
+                                    && r.start > 0
+                                    && let Some(left) = ui.input(|i| {
+                                        if i.modifiers != Modifiers::NONE {
+                                            return None;
+                                        }
+                                        if i.key_pressed(Key::ArrowLeft) {
+                                            Some(true)
+                                        } else if i.key_pressed(Key::ArrowRight) {
+                                            Some(false)
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                {
+                                    let byte = byte_at(&contents, r.start);
+                                    if contents[..byte].ends_with('\\')
+                                        && contents
+                                            .as_bytes()
+                                            .get(byte)
+                                            .is_some_and(u8::is_ascii_punctuation)
+                                        && output.galley.text().chars().nth(r.start - 1)
+                                            == Some('\u{200b}')
+                                    {
+                                        let pos = if left {
+                                            tab.selection.start - 1
+                                        } else {
+                                            tab.selection.start + 1
+                                        };
+                                        tab.selection = pos..pos;
+                                        self.jump = Some(tab.selection.clone());
+                                        ctx.request_repaint();
+                                    }
+                                }
                                 if visual && output.response.changed() {
                                     let pos = byte_at(&tab.doc.text, tab.selection.end);
                                     let new_blocks = blocks::ranges(&tab.doc.text);
