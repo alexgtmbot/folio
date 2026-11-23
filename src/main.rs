@@ -470,7 +470,7 @@ impl Editor {
             self.request_close_tab();
         }
     }
-    fn insert_table(&mut self) {
+    fn insert_block(&mut self, command: &slash::Command) {
         let tab = &mut self.tabs[self.active];
         let byte = byte_at(&tab.doc.text, tab.selection.end);
         let end = tab.doc.text[byte..]
@@ -483,7 +483,7 @@ impl Editor {
         };
         let insert = end + prefix.len();
         tab.doc.text.insert_str(end, prefix);
-        let caret = slash::insert(&mut tab.doc.text, insert..insert, &slash::TABLE);
+        let caret = slash::insert(&mut tab.doc.text, insert..insert, command);
         let suffix = byte_at(&tab.doc.text, caret);
         if let Some(n) = tab.doc.text[suffix..].find('\n') {
             tab.doc.text.insert(suffix + n, '\n');
@@ -589,6 +589,10 @@ impl Editor {
                         self.apply(Format::CodeBlock);
                         ui.close_menu();
                     }
+                    if ui.button(slash::DIVIDER.name).clicked() {
+                        self.insert_block(&slash::DIVIDER);
+                        ui.close_menu();
+                    }
                     ui.separator();
                     for (name, up) in [("Move block up", true), ("Move block down", false)] {
                         if ui.button(name).clicked() {
@@ -649,7 +653,7 @@ impl Editor {
                 }
                 ui.separator();
                 if ui.button("Table").clicked() {
-                    self.insert_table();
+                    self.insert_block(&slash::TABLE);
                 }
                 if ui.button("Image").clicked() {
                     self.insert_link(true);
@@ -1828,6 +1832,19 @@ mod slash_menu_tests {
         }
         assert!(app.tabs[0].source);
         assert_eq!(app.tabs[0].doc.text, "café!");
+    }
+
+    #[test]
+    fn toolbar_divider_keeps_the_selection_and_following_paragraph_text() {
+        let mut app = Editor::with_documents([]);
+        app.tabs[0].doc.text = "First paragraph\nNext".into();
+        app.tabs[0].selection = 0..5;
+        app.insert_block(&slash::DIVIDER);
+        let caret = app.jump.unwrap().start;
+        let doc = &mut app.tabs[0].doc;
+        doc.text.insert_str(byte_at(&doc.text, caret), "Below");
+        assert_eq!(doc.text, "First paragraph\n\n***\nBelow\n\nNext");
+        assert!(doc.dirty);
     }
 
     #[test]

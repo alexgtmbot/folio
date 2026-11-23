@@ -14,6 +14,12 @@ pub const TABLE: Command = Command {
     template: "| Column | Value |\n| --- | --- |\n| ◇ |   |",
 };
 
+pub const DIVIDER: Command = Command {
+    name: "Divider",
+    aliases: &["rule", "separator", "hr"],
+    template: "***\n◇",
+};
+
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "Heading 1",
@@ -66,11 +72,7 @@ pub const COMMANDS: &[Command] = &[
         aliases: &["photo", "picture"],
         template: "![◇](image.png)",
     },
-    Command {
-        name: "Divider",
-        aliases: &["rule", "separator", "hr"],
-        template: "***\n◇",
-    },
+    DIVIDER,
     Command {
         name: "Footnote",
         aliases: &["note"],
