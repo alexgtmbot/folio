@@ -1142,21 +1142,34 @@ impl Editor {
                                 .desired_rows(if visual { 1 } else { 24 })
                                 .layouter(&mut layouter)
                                 .show(ui);
+                            let (pressed, released, pointer) = ui.input(|i| {
+                                (
+                                    i.pointer.primary_pressed(),
+                                    i.pointer.primary_released(),
+                                    i.pointer.interact_pos(),
+                                )
+                            });
                             if visual
-                                && output.response.contains_pointer()
-                                && let Some(pos) = ui.input(|i| {
-                                    i.pointer
-                                        .primary_pressed()
-                                        .then(|| i.pointer.interact_pos())
-                                        .flatten()
-                                })
+                                && (pressed || released)
+                                && let Some(pos) = pointer
+                                && output.response.rect.intersect(ui.clip_rect()).contains(pos)
                             {
-                                let cursor = output
-                                    .galley
-                                    .cursor_from_pos(pos - output.galley_pos)
-                                    .ccursor
-                                    .index;
-                                tab.drag_anchor = Some(offset + cursor);
+                                let cursor = offset
+                                    + output
+                                        .galley
+                                        .cursor_from_pos(pos - output.galley_pos)
+                                        .ccursor
+                                        .index;
+                                if pressed && output.response.contains_pointer() {
+                                    tab.drag_anchor = Some(cursor);
+                                } else if !pressed
+                                    && let Some(anchor) = tab.drag_anchor.take()
+                                    && (anchor < offset
+                                        || anchor > offset + contents.chars().count())
+                                {
+                                    self.jump = Some(anchor.min(cursor)..anchor.max(cursor));
+                                    ctx.request_repaint();
+                                }
                             }
                             if let Some(up) = vertical
                                 && !output.response.changed()
@@ -1775,7 +1788,7 @@ mod slash_menu_tests {
 
     #[test]
     fn dragging_between_paragraphs_selects_the_source_span() {
-        for active in [false, true] {
+        for (active, reverse) in [(false, false), (true, false), (false, true), (true, true)] {
             let ctx = egui::Context::default();
             configure_fonts(&ctx);
             let mut app = Editor::with_documents([]);
@@ -1814,6 +1827,7 @@ mod slash_menu_tests {
             };
             let start = position("café", 1);
             let end = position("second", 3);
+            let (start, end) = if reverse { (end, start) } else { (start, end) };
             let button = |pos, pressed| egui::Event::PointerButton {
                 pos,
                 button: egui::PointerButton::Primary,
