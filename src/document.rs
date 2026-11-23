@@ -57,6 +57,9 @@ impl Document {
         self.dirty = false;
         Ok(())
     }
+    pub fn refresh_dirty(&mut self) {
+        self.dirty = self.format.encode(&self.text) != self.last_saved;
+    }
     pub fn name(&self) -> &str {
         self.path
             .as_deref()

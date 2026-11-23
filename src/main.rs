@@ -1,6 +1,7 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 mod blocks;
 mod document;
+mod history;
 mod slash;
 mod table;
 mod window;
@@ -26,6 +27,8 @@ struct Tab {
     dismissed: Option<(usize, String)>,
     edited: Option<Instant>,
     edit_block: bool,
+    history: history::History,
+    recorded: Option<Instant>,
 }
 impl Tab {
     fn rendered_block(
@@ -107,6 +110,8 @@ impl Editor {
         let edit_block = doc.text.is_empty();
         self.tabs.push(Tab {
             edit_block,
+            history: history::History::new(&doc.text),
+            recorded: None,
             id: self.next_id,
             doc,
             source: false,
@@ -224,6 +229,18 @@ impl Editor {
         let key = |m, k| ctx.input_mut(|i| i.consume_key(m, k));
         let cmd = Modifiers::COMMAND;
         let shifted = cmd | Modifiers::SHIFT;
+        if !ctx.memory(|m| m.has_focus(egui::Id::new("find query"))) {
+            let redo = key(shifted, Key::Z) || (!cfg!(target_os = "macos") && key(cmd, Key::Y));
+            if redo || key(cmd, Key::Z) {
+                let tab = &mut self.tabs[self.active];
+                if let Some(selection) = tab.history.restore(&mut tab.doc.text, redo) {
+                    self.jump = Some(selection);
+                    tab.doc.refresh_dirty();
+                    tab.edited = tab.doc.dirty.then(Instant::now);
+                    tab.recorded = tab.edited;
+                }
+            }
+        }
         if key(shifted, Key::S) {
             self.save(true);
         } else if key(cmd, Key::S) {
@@ -406,7 +423,10 @@ impl Editor {
             }
             if self.find.is_some() {
                 ui.horizontal(|ui| {
-                    let response = ui.text_edit_singleline(self.find.as_mut().unwrap());
+                    let response = ui.add(
+                        TextEdit::singleline(self.find.as_mut().unwrap())
+                            .id(egui::Id::new("find query")),
+                    );
                     if self.focus_find {
                         response.request_focus();
                         self.focus_find = false;
@@ -964,6 +984,12 @@ impl eframe::App for Editor {
         }
         self.toolbar(ctx);
         self.editor(ctx);
+        for tab in &mut self.tabs {
+            if tab.edited != tab.recorded {
+                tab.history.record(&tab.doc.text);
+                tab.recorded = tab.edited;
+            }
+        }
         if self.closing.is_none() {
             for tab in &mut self.tabs {
                 if let (Some(time), Some(path)) = (tab.edited, tab.doc.path.clone()) {

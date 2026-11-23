@@ -40,6 +40,7 @@ In Write mode, type **/** at the beginning of a line and filter by name (for exa
 | Command | Mac | Windows / Linux |
 |---|---|---|
 | Open / Save | ⌘O / ⌘S | Ctrl+O / Ctrl+S |
+| Undo / Redo | ⌘Z / ⇧⌘Z | Ctrl+Z / Ctrl+Shift+Z |
 | Write / Source | ⌘/ | Ctrl+/ |
 | Heading | ⌘1–6 | Ctrl+1–6 |
 | Bold / Italic | ⌘B / ⌘I | Ctrl+B / Ctrl+I |
