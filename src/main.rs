@@ -1651,7 +1651,7 @@ impl eframe::App for Editor {
             ctx.request_repaint();
         }
         if let Some(link) = &mut self.link
-            && let Some(result) = link.show(ctx)
+            && let Some(result) = link.show(ctx, self.tabs[self.active].doc.path.as_deref())
         {
             if let Some(markdown) = result
                 && self.tabs[self.active].id == link.tab

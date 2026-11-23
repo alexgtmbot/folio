@@ -265,7 +265,29 @@ impl Link {
         Some(self.markdown())
     }
 
-    pub fn show(&mut self, ctx: &egui::Context) -> Option<Option<String>> {
+    fn choose_image(&mut self, path: &std::path::Path, note: Option<&std::path::Path>) {
+        let Ok(file) = url::Url::from_file_path(path) else {
+            return;
+        };
+        self.destination = note
+            .and_then(|note| std::path::absolute(note).ok())
+            .and_then(|note| url::Url::from_file_path(note).ok())
+            .and_then(|note| note.make_relative(&file))
+            .unwrap_or_else(|| file.to_string());
+        if self.label.is_empty() {
+            self.label = path
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
+        }
+    }
+
+    pub fn show(
+        &mut self,
+        ctx: &egui::Context,
+        note: Option<&std::path::Path>,
+    ) -> Option<Option<String>> {
         let modal = egui::Modal::new("insert link".into()).show(ctx, |ui| {
             ui.set_min_width(310.);
             ui.heading(if self.existing.is_some() {
@@ -304,6 +326,14 @@ impl Link {
                         "https://example.com"
                     }),
             );
+            if self.image
+                && ui.button("Choose image…").clicked()
+                && let Some(path) = rfd::FileDialog::new()
+                    .add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp"])
+                    .pick_file()
+            {
+                self.choose_image(&path, note);
+            }
             ui.add_space(8.);
             if self.first_frame {
                 if self.label.is_empty() {
@@ -358,6 +388,27 @@ impl Link {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn chosen_image_uses_a_relative_destination_and_keeps_custom_alt_text() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("photos").join("Café #1.png");
+        let note = directory.path().join("Journal.md");
+        let mut dialog = Link::new(0, 0..0, String::new(), true);
+        dialog.choose_image(&path, Some(&note));
+        assert_eq!(dialog.label, "Café #1");
+        assert_eq!(dialog.destination, "photos/Caf%C3%A9%20%231.png");
+        dialog.label = "Morning light".into();
+        dialog.choose_image(&path, None);
+        assert_eq!(dialog.label, "Morning light");
+        assert_eq!(
+            url::Url::parse(&dialog.destination)
+                .unwrap()
+                .to_file_path()
+                .unwrap(),
+            path
+        );
+    }
+
     #[test]
     fn pasting_a_url_over_a_whole_styled_phrase_keeps_its_label_and_marks() {
         let source = "Go _**Café**_ now";
