@@ -435,9 +435,21 @@ pub fn layout(
             let line_start = at == 0 || text[..at].ends_with('\n');
             let bullet = line_start && ["- ", "+ ", "* "].iter().any(|p| trimmed.starts_with(p));
             let task_bullet = bullet && before_task && at + line.len() == end;
+            let quote_prefix = if line_start {
+                trimmed
+                    .bytes()
+                    .take_while(|b| matches!(b, b'>' | b' ' | b'\t'))
+                    .count()
+            } else {
+                0
+            };
             let mut shown = String::new();
             for (i, c) in line.char_indices() {
                 shown.push(if c == '\n' || (line_start && i < indent) {
+                    c
+                } else if i < indent + quote_prefix && c == '>' {
+                    '│'
+                } else if i < indent + quote_prefix && trimmed.starts_with('>') {
                     c
                 } else if bullet && !task_bullet && i == indent {
                     '•'
@@ -840,6 +852,13 @@ mod tests {
         );
         assert_eq!(job.text.chars().count(), md.chars().count());
         assert_eq!(layout(md, 480., Color32::WHITE, true, 0, 17.).text, md);
+    }
+
+    #[test]
+    fn visual_quotes_keep_nesting_and_literal_greater_than_signs() {
+        let md = "> outer\n> > inner > literal";
+        let job = layout(md, 480., Color32::WHITE, false, 0, 17.);
+        assert_eq!(job.text, "│ outer\n│ │ inner > literal");
     }
 
     #[test]
