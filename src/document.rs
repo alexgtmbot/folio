@@ -352,7 +352,12 @@ pub fn list_enter(text: &str, caret: usize) -> Option<(Range<usize>, String)> {
     let before = &text[start..end];
     let body = before.trim_start_matches([' ', '\t']);
     let indent = &before[..before.len() - body.len()];
-    let (marker, content) = body.split_once(' ')?;
+    let rest_of_line = text[end..].split('\n').next()?;
+    let (marker, content) = match body.split_once(' ') {
+        Some(parts) => parts,
+        None if rest_of_line.trim().is_empty() => (body, ""),
+        None => return None,
+    };
     fn next_marker(marker: &str) -> Option<String> {
         Some(match marker {
             "-" | "+" | "*" => marker.to_owned(),
@@ -392,11 +397,15 @@ pub fn list_enter(text: &str, caret: usize) -> Option<(Range<usize>, String)> {
             None
         })?;
     let is_task = |content: &str| {
-        content.starts_with("[ ] ") || content.starts_with("[x] ") || content.starts_with("[X] ")
+        ["[ ]", "[x]", "[X]"].iter().any(|marker| {
+            content
+                .strip_prefix(marker)
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
+        })
     };
     let task = is_task(content);
-    let empty = if task { &content[4..] } else { content };
-    if empty.trim().is_empty() && text[end..].split('\n').next()?.trim().is_empty() {
+    let empty = if task { &content[3..] } else { content };
+    if empty.trim().is_empty() && rest_of_line.trim().is_empty() {
         let mut replacement = String::new();
         if let Some(parent) = parent {
             let line = text[..parent].rfind('\n').map_or(0, |i| i + 1);
@@ -463,6 +472,23 @@ mod tests {
                 Some((caret - child.len()..caret, sibling.into()))
             );
         }
+    }
+
+    #[test]
+    fn enter_exits_empty_markers_after_trailing_spaces_are_stripped() {
+        for marker in ["-", "+", "*", "3.", "3)", "- [ ]", "- [X]"] {
+            assert_eq!(
+                list_enter(marker, marker.len()),
+                Some((0..marker.len(), String::new()))
+            );
+        }
+        let nested = "- Parent\n\n  -";
+        assert_eq!(
+            list_enter(nested, nested.len()),
+            Some((nested.len() - 3..nested.len(), "- ".into()))
+        );
+        assert_eq!(list_enter("Title\n-", 7), None);
+        assert_eq!(list_enter("- content", 1), None);
     }
 
     #[test]
