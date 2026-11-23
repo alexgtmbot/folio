@@ -55,6 +55,12 @@ pub fn web_link_at(source: &str, byte: usize) -> Option<String> {
         })
 }
 
+struct ExistingLabel {
+    displayed: String,
+    markdown: Option<String>,
+    title: String,
+}
+
 pub struct Link {
     pub tab: u64,
     pub range: Range<usize>,
@@ -62,6 +68,7 @@ pub struct Link {
     destination: String,
     image: bool,
     first_frame: bool,
+    existing: Option<ExistingLabel>,
 }
 
 impl Link {
@@ -73,7 +80,63 @@ impl Link {
             destination: String::new(),
             image,
             first_frame: true,
+            existing: None,
         }
+    }
+
+    pub fn at_selection(tab: u64, source: &str, selection: Range<usize>, image: bool) -> Self {
+        use pulldown_cmark::{Event, Parser, Tag};
+        let mut events = Parser::new_ext(source, crate::blocks::options()).into_offset_iter();
+        while let Some((event, span)) = events.next() {
+            let (dest, title) = match event {
+                Event::Start(Tag::Link {
+                    dest_url, title, ..
+                }) if !image => (dest_url, title),
+                Event::Start(Tag::Image {
+                    dest_url, title, ..
+                }) if image => (dest_url, title),
+                _ => continue,
+            };
+            if !span.contains(&selection.start) || selection.end > span.end {
+                continue;
+            }
+            let mut label = String::new();
+            let mut depth = 1;
+            let mut last = span.start;
+            for (event, child) in events.by_ref() {
+                match event {
+                    Event::End(_) => {
+                        depth -= 1;
+                        if depth == 0 {
+                            break;
+                        }
+                    }
+                    Event::Start(_) => depth += 1,
+                    Event::Text(value) | Event::Code(value) => label.push_str(&value),
+                    Event::SoftBreak | Event::HardBreak => label.push(' '),
+                    _ => {}
+                }
+                last = child.end;
+            }
+            let raw = &source[span.clone()];
+            let prefix = if image { "![" } else { "[" };
+            let original = raw
+                .strip_prefix(prefix)
+                .and_then(|rest| {
+                    let after = last.saturating_sub(span.start + prefix.len());
+                    Some(&rest[..after + rest.get(after..)?.find(']')?])
+                })
+                .map(str::to_owned);
+            let mut dialog = Self::new(tab, span, label, image);
+            dialog.destination = dest.into_string();
+            dialog.existing = Some(ExistingLabel {
+                displayed: dialog.label.clone(),
+                markdown: original,
+                title: title.into_string(),
+            });
+            return dialog;
+        }
+        Self::new(tab, selection.clone(), source[selection].to_owned(), image)
     }
 
     pub fn image_markdown(label: &str, path: &str) -> String {
@@ -106,13 +169,36 @@ impl Link {
                 _ => dest.push(c),
             }
         }
+        if let Some(existing) = &self.existing {
+            if existing.displayed == self.label
+                && let Some(raw) = &existing.markdown
+            {
+                label.clone_from(raw);
+            }
+            if !existing.title.is_empty() {
+                dest.push_str(" \"");
+                for c in existing.title.chars() {
+                    if matches!(c, '\\' | '"' | '&') {
+                        dest.push('\\');
+                    }
+                    dest.push(c);
+                }
+                dest.push('"');
+            }
+        }
         format!("{}[{label}]({dest})", if self.image { "!" } else { "" })
     }
 
     pub fn show(&mut self, ctx: &egui::Context) -> Option<Option<String>> {
         let modal = egui::Modal::new("insert link".into()).show(ctx, |ui| {
             ui.set_min_width(310.);
-            ui.heading(if self.image {
+            ui.heading(if self.existing.is_some() {
+                if self.image {
+                    "Edit image"
+                } else {
+                    "Edit link"
+                }
+            } else if self.image {
                 "Insert image"
             } else {
                 "Insert link"
@@ -159,12 +245,21 @@ impl Link {
             let ready = !self.destination.trim().is_empty()
                 && !self.destination.chars().any(char::is_control);
             ui.horizontal(|ui| {
-                if ui.add_enabled(ready, egui::Button::new("Insert")).clicked()
+                if ui
+                    .add_enabled(
+                        ready,
+                        egui::Button::new(if self.existing.is_some() {
+                            "Apply"
+                        } else {
+                            "Insert"
+                        }),
+                    )
+                    .clicked()
                     || ready
                         && url.lost_focus()
                         && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter))
                 {
-                    if !self.image && self.label.is_empty() {
+                    if self.existing.is_none() && !self.image && self.label.is_empty() {
                         self.label = self.destination.trim().to_owned();
                     }
                     return Some(Some(self.markdown()));
@@ -184,6 +279,21 @@ impl Link {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn editing_a_link_preserves_its_formatted_label_and_title() {
+        let source = "See [the **map**](old.md \"Trail guide\") today";
+        let mut dialog = Link::at_selection(3, source, 12..12, false);
+        assert_eq!(dialog.label, "the map");
+        assert_eq!(dialog.destination, "old.md");
+        dialog.destination = "new map.md".into();
+        let mut updated = source.to_owned();
+        updated.replace_range(dialog.range.clone(), &dialog.markdown());
+        assert_eq!(
+            updated,
+            "See [the **map**](new%20map.md \"Trail guide\") today"
+        );
+    }
+
     #[test]
     fn follows_web_references_under_the_caret_only() {
         let source = "🦀 [docs][ref] and `[literal](https://example.org)`\n\n[ref]: https://example.org/docs";

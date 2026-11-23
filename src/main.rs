@@ -333,10 +333,10 @@ impl Editor {
         let tab = &self.tabs[self.active];
         let range =
             byte_at(&tab.doc.text, tab.selection.start)..byte_at(&tab.doc.text, tab.selection.end);
-        self.link = Some(link::Link::new(
+        self.link = Some(link::Link::at_selection(
             tab.id,
-            range.clone(),
-            tab.doc.text[range].to_owned(),
+            &tab.doc.text,
+            range,
             image,
         ));
     }
