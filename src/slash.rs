@@ -152,7 +152,7 @@ pub fn matching(query: &str) -> impl Iterator<Item = &'static Command> + '_ {
     matches.into_iter().map(|(_, command)| command)
 }
 
-fn split_quote_prefix(line: &str) -> (&str, &str) {
+pub(crate) fn split_quote_prefix(line: &str) -> (&str, &str) {
     let mut body = line;
     while let Some(after) = body.trim_start_matches([' ', '\t']).strip_prefix('>') {
         body = after.strip_prefix([' ', '\t']).unwrap_or(after);
@@ -160,7 +160,7 @@ fn split_quote_prefix(line: &str) -> (&str, &str) {
     line.split_at(line.len() - body.len())
 }
 
-fn list_content(line: &str) -> Option<(&str, usize)> {
+pub(crate) fn list_content(line: &str) -> Option<(&str, usize)> {
     let body = line.trim_start_matches(' ');
     let (marker, rest) = body.split_once(' ')?;
     if !matches!(marker, "-" | "+" | "*") {

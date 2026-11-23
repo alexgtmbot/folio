@@ -561,21 +561,51 @@ pub fn exit_fenced_code(text: &mut String, block: Range<usize>) -> Option<usize>
 pub fn hard_break(text: &str, caret: usize) -> Option<String> {
     use pulldown_cmark::{Event, Parser, Tag};
     let byte = byte_at(text, caret);
-    let mut paragraph = false;
+    let mut containers = Vec::new();
     for (event, span) in Parser::new_ext(text, crate::blocks::options()).into_offset_iter() {
         if span.start > byte {
             break;
         }
         match event {
-            Event::Start(Tag::Paragraph) => paragraph = span.start < byte && byte <= span.end,
-            Event::End(pulldown_cmark::TagEnd::Paragraph) => paragraph = false,
-            Event::Text(_) if paragraph && span.start < byte && byte <= span.end => {
-                let spaces = text[..byte]
+            Event::Start(tag) => containers.push((tag, span.start)),
+            Event::End(_) => {
+                containers.pop();
+            }
+            Event::Text(_) if span.start < byte && byte <= span.end => {
+                let block = containers.iter().rev().find(|(tag, _)| {
+                    !matches!(
+                        tag,
+                        Tag::Strong | Tag::Emphasis | Tag::Strikethrough | Tag::Link { .. }
+                    )
+                });
+                if !matches!(block, Some((Tag::Paragraph | Tag::Item, _))) {
+                    return None;
+                }
+                let current_line = text[..byte].rsplit('\n').next()?;
+                let (quote, _) = crate::slash::split_quote_prefix(current_line);
+                let indent = containers
+                    .iter()
+                    .rev()
+                    .find_map(|(tag, start)| {
+                        if !matches!(tag, Tag::Item) {
+                            return None;
+                        }
+                        let line_start = text[..*start].rfind('\n').map_or(0, |i| i + 1);
+                        let line = text[line_start..].lines().next()?;
+                        crate::slash::list_content(crate::slash::split_quote_prefix(line).1)
+                            .map(|(_, indent)| indent)
+                    })
+                    .unwrap_or(0);
+                let spaces = current_line
                     .bytes()
                     .rev()
                     .take_while(|&b| b == b' ')
                     .count();
-                return Some(format!("{}\n", " ".repeat(2usize.saturating_sub(spaces))));
+                return Some(format!(
+                    "{}\n{quote}{}",
+                    " ".repeat(2usize.saturating_sub(spaces)),
+                    " ".repeat(indent)
+                ));
             }
             _ => {}
         }
@@ -766,6 +796,24 @@ mod tests {
         assert!(pulldown_cmark::Parser::new(&text).any(|e| e == pulldown_cmark::Event::HardBreak));
         assert!(hard_break("Use `code`", 7).is_none());
         assert!(hard_break("Intro\n\n```\ncode", 13).is_none());
+    }
+
+    #[test]
+    fn hard_break_continues_the_same_tight_list_item() {
+        for (source, indent) in [
+            ("- Café", "  "),
+            ("10. [x] Café", "    "),
+            ("- parent\n  - Café", "    "),
+        ] {
+            let caret = source.chars().count();
+            let mut text = source.to_owned();
+            text.push_str(&hard_break(source, caret).unwrap());
+            text.push_str("second");
+            assert_eq!(text, format!("{source}  \n{indent}second"));
+            let events: Vec<_> =
+                pulldown_cmark::Parser::new_ext(&text, crate::blocks::options()).collect();
+            assert!(events.contains(&pulldown_cmark::Event::HardBreak));
+        }
     }
 
     #[test]
