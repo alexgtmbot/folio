@@ -202,17 +202,23 @@ impl Table {
         text.replace_range(self.start..self.end, &output);
     }
     fn parse(text: &str) -> Option<Self> {
+        Self::parse_block(text, text.len())
+    }
+
+    fn parse_block(text: &str, block_end: usize) -> Option<Self> {
         let mut events = Parser::new_ext(text, crate::blocks::options()).into_offset_iter();
         let (Event::Start(Tag::Table(alignment)), span) = events.next()? else {
             return None;
         };
-        if !text[span.end..].trim().is_empty() {
+        let end = span.end.min(block_end);
+        if !text[end..block_end].trim().is_empty() {
             return None;
         }
         let mut rows = Vec::<Vec<_>>::new();
         let mut needs_viewer = false;
         for (event, range) in events {
             match event {
+                Event::End(pulldown_cmark::TagEnd::Table) => break,
                 Event::Start(Tag::TableHead | Tag::TableRow) => rows.push(Vec::new()),
                 Event::Start(Tag::Link { .. } | Tag::Image { .. })
                 | Event::Html(_)
@@ -227,7 +233,7 @@ impl Table {
             alignment,
             rows,
             start: span.start,
-            end: text[..span.end].trim_end_matches(['\r', '\n']).len(),
+            end: text[..end].trim_end_matches(['\r', '\n']).len(),
         })
     }
 }
@@ -295,10 +301,12 @@ fn cell_galley(
 pub fn preview(
     ui: &mut egui::Ui,
     text: &str,
+    block_end: usize,
     size: f32,
     offset: usize,
 ) -> Option<crate::window::BlockAction> {
-    let table = Table::parse(text)?;
+    let table = Table::parse_block(text, block_end)?;
+    let text = &text[..block_end];
     // Delegate embedded media and links to the full CommonMark viewer.
     if table.needs_viewer {
         return None;
@@ -599,6 +607,9 @@ mod tests {
         crate::configure_fonts(&ctx);
         for (cell, grid) in [
             ("array[0] < 5", true),
+            ("[label][guide]", false),
+            ("[guide]", false),
+            ("[missing]", true),
             ("`[label](path)`", true),
             ("[label](path)", false),
             ("![map](map.png)", false),
@@ -606,9 +617,14 @@ mod tests {
             ("<b>value</b>", false),
         ] {
             let text = format!("| Test |\n| --- |\n| {cell} |");
+            let source = format!("{text}\n\n[guide]: local.md");
             let _ = ctx.run(Default::default(), |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    assert_eq!(preview(ui, &text, 17., 0).is_some(), grid, "{cell}");
+                    assert_eq!(
+                        preview(ui, &source, text.len(), 17., 0).is_some(),
+                        grid,
+                        "{cell}"
+                    );
                 });
             });
         }
@@ -620,7 +636,7 @@ mod tests {
         crate::configure_fonts(&ctx);
         let source = "| Name |\n| --- |\n| `é\\|b` |";
         let output = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| preview(ui, source, 17., 0));
+            egui::CentralPanel::default().show(ctx, |ui| preview(ui, source, source.len(), 17., 0));
         });
         assert!(output.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text().replace('\u{200b}', "") == "é|b")));
         let raw = r"`é\|b`";
@@ -664,7 +680,7 @@ mod tests {
                 |ctx| {
                     egui::CentralPanel::default().show(ctx, |ui| {
                         if let Some(crate::window::BlockAction::ReplaceTable(_, md)) =
-                            preview(ui, source, 17., 0)
+                            preview(ui, source, source.len(), 17., 0)
                         {
                             changed = Some(md);
                         }

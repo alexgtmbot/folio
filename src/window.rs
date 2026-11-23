@@ -355,9 +355,15 @@ pub fn editable_block(
             .graphics(|g| g.get(ui.layer_id()).map_or(0, |list| list.next_idx().0))
     });
     let block = &text[r.clone()];
-    if (definitions.is_empty() || !block.contains('['))
-        && let Some(hit) = crate::table::preview(ui, block, size, r.start)
-    {
+    let referenced = (!definitions.is_empty() && block.contains('['))
+        .then(|| crate::blocks::with_references(text, r, definitions));
+    if let Some(hit) = crate::table::preview(
+        ui,
+        referenced.as_deref().unwrap_or(block),
+        block.len(),
+        size,
+        r.start,
+    ) {
         return hit;
     }
     let width = ui.available_width();
@@ -378,7 +384,7 @@ pub fn editable_block(
         }
         return BlockAction::None;
     }
-    let source = crate::blocks::with_references(text, r, definitions);
+    let source = referenced.unwrap_or_else(|| crate::blocks::with_references(text, r, definitions));
     let response = ui.push_id(r.start, |ui| {
         let task = render(ui, cache, &source, base, size, true);
         ui.add_space(5.);
