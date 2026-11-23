@@ -1136,7 +1136,14 @@ impl Editor {
                                     None
                                 };
                             let mut contents = tab.doc.text[editable.clone()].to_owned();
+                            let hint = if visual && tab.doc.text.is_empty() {
+                                "Start writing, or type / for commands"
+                            } else {
+                                ""
+                            };
                             let output = TextEdit::multiline(&mut contents)
+                                .hint_text(hint)
+                                .font(egui::FontId::proportional(self.text_size))
                                 .id(id)
                                 .frame(false)
                                 .desired_width(f32::INFINITY)
@@ -1785,6 +1792,28 @@ mod slash_menu_tests {
         }
         assert!(app.tabs[0].source);
         assert_eq!(app.tabs[0].doc.text, "café!");
+    }
+
+    #[test]
+    fn blank_write_view_shows_the_slash_hint_until_typing() {
+        let ctx = egui::Context::default();
+        configure_fonts(&ctx);
+        let mut app = Editor::with_documents([]);
+        let mut frame = eframe::Frame::_new_kittest();
+        for (events, visible) in [
+            (vec![], true),
+            (vec![egui::Event::Text("Note".into())], false),
+        ] {
+            let output = ctx.run(
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |ctx| eframe::App::update(&mut app, ctx, &mut frame),
+            );
+            assert_eq!(output.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text().contains("type / for commands"))), visible);
+        }
+        assert_eq!(app.tabs[0].doc.text, "Note");
     }
 
     #[test]
