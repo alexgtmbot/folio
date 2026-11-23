@@ -79,6 +79,7 @@ struct Editor {
     tabs: Vec<Tab>,
     active: usize,
     next_id: u64,
+    window_title: String,
     preview_cache: egui_commonmark::CommonMarkCache,
     closing: Option<Closing>,
     quit: bool,
@@ -105,6 +106,7 @@ impl Editor {
             tabs: Vec::new(),
             active: 0,
             next_id: 0,
+            window_title: String::new(),
             preview_cache: Default::default(),
             closing: None,
             quit: false,
@@ -1493,11 +1495,15 @@ impl eframe::App for Editor {
             }
         }
         let tab = &self.tabs[self.active];
-        ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
+        let title = format!(
             "{}{} — Folio",
             tab.doc.name(),
             if tab.doc.dirty { " *" } else { "" }
-        )));
+        );
+        if title != self.window_title {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
+            self.window_title = title;
+        }
         if let Some(message) = self.error.clone() {
             egui::Modal::new("error".into()).show(ctx, |ui| {
                 ui.label(message);
@@ -1713,6 +1719,35 @@ mod slash_menu_tests {
         }
         assert!(app.tabs[0].source);
         assert_eq!(app.tabs[0].doc.text, "café!");
+    }
+
+    #[test]
+    fn unchanged_title_does_not_schedule_another_frame() {
+        let ctx = egui::Context::default();
+        configure_fonts(&ctx);
+        let mut app = Editor::with_documents([]);
+        let mut frame = eframe::Frame::_new_kittest();
+        for (events, expected) in [
+            (vec![], true),
+            (vec![], false),
+            (vec![egui::Event::Text("edited".into())], true),
+            (vec![], false),
+        ] {
+            let output = ctx.run(
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |ctx| eframe::App::update(&mut app, ctx, &mut frame),
+            );
+            assert_eq!(
+                output.viewport_output[&egui::ViewportId::ROOT]
+                    .commands
+                    .iter()
+                    .any(|cmd| matches!(cmd, egui::ViewportCommand::Title(_))),
+                expected
+            );
+        }
     }
 
     #[test]
