@@ -372,11 +372,6 @@ impl Editor {
         } else if key(cmd, Key::K) {
             self.insert_link(false);
         }
-        if key(shifted, Key::S) {
-            self.save(true);
-        } else if key(cmd, Key::S) {
-            self.save(false);
-        }
         if key(cmd, Key::N) {
             self.add(Document::default());
         }
@@ -427,6 +422,13 @@ impl Editor {
             if key(m, k) {
                 self.apply(f);
             }
+        }
+    }
+    fn save_shortcut(&mut self, ctx: &egui::Context) {
+        let save_as =
+            ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::S));
+        if save_as || ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::S)) {
+            self.save(save_as);
         }
     }
     fn insert_table(&mut self) {
@@ -1409,7 +1411,9 @@ impl eframe::App for Editor {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.finish_close(ctx, Closing::App);
         }
-        if self.closing.is_none() && self.error.is_none() && self.link.is_none() {
+        let shortcuts_enabled =
+            self.closing.is_none() && self.error.is_none() && self.link.is_none();
+        if shortcuts_enabled {
             self.shortcuts(ctx);
             self.handle_drops(ctx);
         }
@@ -1453,6 +1457,13 @@ impl eframe::App for Editor {
                 tab.history.record(&tab.doc.text);
                 tab.recorded = tab.edited;
             }
+        }
+        if shortcuts_enabled
+            && self.closing.is_none()
+            && self.error.is_none()
+            && self.link.is_none()
+        {
+            self.save_shortcut(ctx);
         }
         if self.closing.is_none() {
             for tab in &mut self.tabs {
@@ -1679,26 +1690,29 @@ mod slash_menu_tests {
             repeat: false,
             modifiers,
         };
-        for event in [
-            None,
-            Some(key(Key::Num1, Modifiers::COMMAND)),
-            None,
-            Some(egui::Event::Text("Field notes".into())),
-            Some(key(Key::Enter, Modifiers::NONE)),
-            Some(key(Key::Enter, Modifiers::NONE)),
-            Some(egui::Event::Text("- First stop".into())),
-            Some(key(Key::Enter, Modifiers::NONE)),
-            Some(egui::Event::Text("Second stop".into())),
-            Some(key(Key::S, Modifiers::COMMAND)),
+        for events in [
+            vec![],
+            vec![key(Key::Num1, Modifiers::COMMAND)],
+            vec![],
+            vec![egui::Event::Text("Field notes".into())],
+            vec![key(Key::Enter, Modifiers::NONE)],
+            vec![key(Key::Enter, Modifiers::NONE)],
+            vec![egui::Event::Text("- First stop".into())],
+            vec![key(Key::Enter, Modifiers::NONE)],
+            vec![
+                egui::Event::Text("Second stop".into()),
+                key(Key::S, Modifiers::COMMAND),
+            ],
         ] {
             let _ = ctx.run(
                 egui::RawInput {
-                    events: event.into_iter().collect(),
+                    events,
                     ..Default::default()
                 },
                 |ctx| {
                     app.shortcuts(ctx);
                     app.editor(ctx);
+                    app.save_shortcut(ctx);
                 },
             );
         }
