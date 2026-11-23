@@ -722,7 +722,7 @@ impl Editor {
         }
         egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                let count = tab.doc.text.split_whitespace().count();
+                let count = blocks::word_count(&tab.doc.text);
                 ui.small(format!(
                     "{} {}",
                     count,

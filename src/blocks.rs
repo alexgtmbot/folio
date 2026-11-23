@@ -10,6 +10,38 @@ pub fn options() -> Options {
         | Options::ENABLE_DEFINITION_LIST
 }
 
+pub fn word_count(text: &str) -> usize {
+    use pulldown_cmark::TagEnd;
+    let mut count = 0;
+    let mut in_word = false;
+    for event in Parser::new_ext(text, options()) {
+        match event {
+            Event::Text(value)
+            | Event::Code(value)
+            | Event::Html(value)
+            | Event::InlineHtml(value) => {
+                for c in value.chars() {
+                    let visible = !c.is_whitespace();
+                    count += usize::from(visible && !in_word);
+                    in_word = visible;
+                }
+            }
+            Event::End(
+                TagEnd::Emphasis
+                | TagEnd::Strong
+                | TagEnd::Strikethrough
+                | TagEnd::Link
+                | TagEnd::Image,
+            )
+            | Event::Start(_)
+            | Event::FootnoteReference(_)
+            | Event::TaskListMarker(_) => {}
+            _ => in_word = false,
+        }
+    }
+    count
+}
+
 pub fn ranges(text: &str) -> Vec<Range<usize>> {
     let parser = Parser::new_ext(text, options());
     let mut starts: Vec<_> = parser
@@ -149,6 +181,20 @@ pub fn paragraph_separator(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn word_count_uses_document_text_across_inline_styles_and_cells() {
+        assert_eq!(
+            word_count("| Name | Status |\n| --- | --- |\n| Alpine | Ready |"),
+            4
+        );
+        assert_eq!(
+            word_count("# Note\n\n- [x] pre**fix** and [two words](https://example.org)\n\n---"),
+            5
+        );
+        assert_eq!(word_count("a\u{202f}b\n\n`two words`"), 4);
+        assert_eq!(word_count("---\n\n[ref]: https://example.org"), 0);
+    }
+
     #[test]
     fn moving_up_from_eof_and_moving_a_range() {
         let mut text = "one\n\ntwo\n\nthree".to_owned();
