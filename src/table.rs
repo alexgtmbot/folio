@@ -145,6 +145,37 @@ impl Table {
             }
             return;
         }
+        let grid = if let TableAction::PasteGrid(input) = &action {
+            let mut grid = clipboard_rows(&input.replace("\r\n", "\n").replace('\r', "\n"));
+            for cell in grid.iter_mut().flatten() {
+                *cell = cell.replace('\\', "\\\\").replace('|', "\\|");
+            }
+            let fits = grid.iter().enumerate().all(|(offset, values)| {
+                self.rows
+                    .get(row + offset)
+                    .and_then(|cells| cells.get(col..col + values.len()))
+                    .is_some_and(|cells| cells.iter().all(|span| !span.is_empty()))
+            });
+            if fits {
+                // Work backwards so later replacements cannot shift an earlier cell.
+                for (offset, values) in grid.into_iter().enumerate().rev() {
+                    for (index, value) in values.into_iter().enumerate().rev() {
+                        let span = &self.rows[row + offset][col + index];
+                        let original = &text[span.clone()];
+                        let content = original.trim_start_matches(CELL_PADDING);
+                        let start = span.end - content.len();
+                        text.replace_range(
+                            start..start + content.trim_end_matches(CELL_PADDING).len(),
+                            &value,
+                        );
+                    }
+                }
+                return;
+            }
+            grid
+        } else {
+            Vec::new()
+        };
         // Split only on actual pipe delimiters. Keep escaped pipes and spare
         // cells in ragged source rows when changing the table structure.
         let mut rows: Vec<Vec<String>> = text[self.start..self.end]
@@ -199,9 +230,7 @@ impl Table {
                     }
                 }
             }
-            TableAction::PasteGrid(grid) => {
-                let grid = grid.replace("\r\n", "\n").replace('\r', "\n");
-                let grid = clipboard_rows(&grid);
+            TableAction::PasteGrid(_) => {
                 let width = grid
                     .iter()
                     .map(|line| col + line.len())
@@ -222,7 +251,7 @@ impl Table {
                         cells.resize_with(end, String::new);
                     }
                     for (c, value) in line.into_iter().enumerate() {
-                        cells[col + c] = value.replace('\\', "\\\\").replace('|', "\\|");
+                        cells[col + c] = value;
                     }
                 }
             }
@@ -1012,6 +1041,23 @@ mod tests {
         assert_eq!(
             clipboard_rows("\"unfinished\tvalue"),
             [vec!["\"unfinished", "value"]]
+        );
+    }
+
+    #[test]
+    fn spreadsheet_paste_preserves_surrounding_markdown() {
+        let source =
+            " Name   | Status | Notes\r\n :----- | :----: | -----:\r\n Café   | old    | a\\|b\r\n";
+        let mut text = source.to_owned();
+        Table::parse(&text).unwrap().change(
+            &mut text,
+            1,
+            0,
+            TableAction::PasteGrid("Été\tnew|value".into()),
+        );
+        assert_eq!(
+            text,
+            source.replace("Café", "Été").replace("old", "new\\|value")
         );
     }
 
