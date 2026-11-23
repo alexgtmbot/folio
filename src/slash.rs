@@ -125,10 +125,29 @@ pub const COMMANDS: &[Command] = &[
 
 pub fn matching(query: &str) -> impl Iterator<Item = &'static Command> + '_ {
     let query = query.trim().to_ascii_lowercase();
-    COMMANDS.iter().filter(move |command| {
-        command.name.to_ascii_lowercase().contains(&query)
-            || command.aliases.iter().any(|alias| alias.contains(&query))
-    })
+    let mut matches = Vec::new();
+    for command in COMMANDS {
+        let name = command.name.to_ascii_lowercase();
+        let rank = std::iter::once(name.as_str())
+            .chain(command.aliases.iter().copied())
+            .filter_map(|label| {
+                if label == query {
+                    Some(0)
+                } else if label.starts_with(&query) {
+                    Some(1)
+                } else if label.contains(&query) {
+                    Some(2)
+                } else {
+                    None
+                }
+            })
+            .min();
+        if let Some(rank) = rank {
+            matches.push((rank, command));
+        }
+    }
+    matches.sort_by_key(|(rank, _)| *rank);
+    matches.into_iter().map(|(_, command)| command)
 }
 
 pub fn query(text: &str, selection: &Range<usize>) -> Option<Range<usize>> {
@@ -174,6 +193,8 @@ mod tests {
         for (query, expected) in [
             ("H3", "Heading 3"),
             ("checkbox", "Task"),
+            ("ordered", "Numbered list"),
+            ("ord", "Numbered list"),
             ("grid", "Table"),
             ("snippet", "Code block"),
             ("picture", "Image"),
