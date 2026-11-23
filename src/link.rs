@@ -197,6 +197,10 @@ impl Link {
             if !existing.title.is_empty() {
                 dest.push_str(" \"");
                 for c in existing.title.chars() {
+                    if c == '|' {
+                        dest.push_str("&#124;");
+                        continue;
+                    }
                     if matches!(c, '\\' | '"' | '&') {
                         dest.push('\\');
                     }
@@ -313,6 +317,23 @@ impl Link {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn editing_a_table_link_preserves_pipes_in_its_title() {
+        use pulldown_cmark::{Event, Parser, Tag};
+        let source = "| Guide |\n| --- |\n| [Map](old.md \"North &#124; South\") |";
+        let caret = source.find("Map").unwrap();
+        let mut link = Link::at_selection(0, source, caret..caret, false);
+        link.destination = "new.md".into();
+        let mut edited = source.to_owned();
+        edited.replace_range(link.range.clone(), &link.markdown());
+        assert!(
+            Parser::new_ext(&edited, crate::blocks::options()).any(|event| {
+                matches!(event, Event::Start(Tag::Link { dest_url, title, .. })
+                if dest_url.as_ref() == "new.md" && title.as_ref() == "North | South")
+            })
+        );
+    }
+
     #[test]
     fn removing_a_link_preserves_inline_formatting_and_reference_definitions() {
         let source = "See [the **map**][route].\n\n[route]: guide.md";
