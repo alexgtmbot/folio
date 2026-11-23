@@ -1112,7 +1112,8 @@ impl Editor {
                                             modifiers: Modifiers::NONE,
                                         }
                                     } else {
-                                        egui::Event::Text(insert)
+                                        // TextEdit ignores standalone newlines in text events.
+                                        egui::Event::Paste(insert)
                                     })
                                 });
                             }
@@ -1784,6 +1785,39 @@ mod slash_menu_tests {
         }
         assert!(app.tabs[0].source);
         assert_eq!(app.tabs[0].doc.text, "café!");
+    }
+
+    #[test]
+    fn enter_on_an_empty_quote_starts_an_outside_paragraph() {
+        let ctx = egui::Context::default();
+        configure_fonts(&ctx);
+        let mut app = Editor::with_documents([]);
+        let mut frame = eframe::Frame::_new_kittest();
+        let enter = egui::Event::Key {
+            key: Key::Enter,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        };
+        for events in [
+            vec![],
+            vec![egui::Event::Text("> First".into())],
+            vec![enter.clone()],
+            vec![egui::Event::Text("Second".into())],
+            vec![enter.clone()],
+            vec![enter],
+            vec![egui::Event::Text("Outside".into())],
+        ] {
+            let _ = ctx.run(
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |ctx| eframe::App::update(&mut app, ctx, &mut frame),
+            );
+        }
+        assert_eq!(app.tabs[0].doc.text, "> First\n> Second\n\nOutside");
     }
 
     #[test]
