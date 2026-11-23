@@ -37,7 +37,14 @@ impl Document {
         let path = if destination.exists() {
             destination.canonicalize()?
         } else {
-            destination.to_owned()
+            let absolute = std::path::absolute(destination)?;
+            let parent = absolute
+                .parent()
+                .ok_or_else(|| io::Error::other("Missing destination folder"))?;
+            let name = absolute
+                .file_name()
+                .ok_or_else(|| io::Error::other("Missing filename"))?;
+            parent.canonicalize()?.join(name)
         };
         if self.path.as_ref() == Some(&path) && fs::read(&path)? != self.last_saved {
             return Err(io::Error::other(
@@ -1235,6 +1242,24 @@ mod tests {
         format(&mut text, selection, Format::Block("- "));
         assert_eq!(text, "before\n- 🦀\n\n- [x] café\n- three\nafter");
     }
+    #[test]
+    fn first_save_through_a_relative_path_keeps_external_edit_protection() {
+        let dir = tempfile::tempdir_in(".").unwrap();
+        let relative = dir
+            .path()
+            .strip_prefix(std::env::current_dir().unwrap())
+            .unwrap_or(dir.path())
+            .join("Journal.md");
+        assert!(relative.is_relative());
+        let mut doc = Document::default();
+        doc.text.push_str("Local draft");
+        doc.save(&relative).unwrap();
+        fs::write(&relative, "External edit").unwrap();
+        doc.text.push_str(" revised");
+        assert!(doc.save(&relative).is_err());
+        assert_eq!(fs::read_to_string(&relative).unwrap(), "External edit");
+    }
+
     #[test]
     fn save_as_redirects_subsequent_edits_to_the_copy() {
         let dir = tempfile::tempdir().unwrap();
