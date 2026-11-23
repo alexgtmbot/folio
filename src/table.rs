@@ -17,6 +17,25 @@ enum TableAction {
     Remove,
 }
 
+fn pasted_cell_text(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    for part in value.split_inclusive('|') {
+        if let Some(before_pipe) = part.strip_suffix('|') {
+            output.push_str(before_pipe);
+            let backslashes = before_pipe
+                .bytes()
+                .rev()
+                .take_while(|&b| b == b'\\')
+                .count();
+            output.extend(std::iter::repeat_n('\\', backslashes));
+            output.push('|');
+        } else {
+            output.push_str(part);
+        }
+    }
+    output
+}
+
 // Spreadsheet clipboards quote cells containing tabs, newlines, or double quotes.
 fn clipboard_rows(grid: &str) -> Vec<Vec<String>> {
     let plain = || {
@@ -82,7 +101,8 @@ impl Table {
         // cells in ragged source rows when changing the table structure.
         let mut rows: Vec<Vec<String>> = text[self.start..self.end]
             .lines()
-            .map(|line| {
+            .enumerate()
+            .map(|(row, line)| {
                 let mut cells = Vec::new();
                 let line = line.trim_matches(CELL_PADDING);
                 let mut start = 0;
@@ -92,7 +112,8 @@ impl Table {
                         cells.push(line[start..i].trim_matches(CELL_PADDING).to_owned());
                         start = i + 1;
                     }
-                    escaped = c == '\\' && !escaped;
+                    // pulldown-cmark accepts an even run before a pipe in body cells.
+                    escaped = c == '\\' && (row >= 2 || !escaped);
                 }
                 cells.push(line[start..].trim_matches(CELL_PADDING).to_owned());
                 if line.starts_with('|') {
@@ -411,11 +432,11 @@ pub fn edit(
                                 structural = Some((row, col, TableAction::PasteGrid(grid)));
                             }
                             for event in &mut input.events {
-                                if let egui::Event::Paste(text) = event
-                                    && text.contains(['\r', '\n'])
-                                {
+                                if let egui::Event::Paste(text) = event {
                                     // GFM table cells occupy one source line.
-                                    *text = text.replace("\r\n", " ").replace(['\r', '\n'], " ");
+                                    *text = pasted_cell_text(text)
+                                        .replace("\r\n", " ")
+                                        .replace(['\r', '\n'], " ");
                                 }
                             }
                         });
@@ -729,6 +750,46 @@ mod tests {
             "| A | B |  |\n| :--- | ---: | --- |\n| keep | α\tβ | b\\|c |\n|  | 🦀 | d e |"
         );
         assert_eq!(Table::parse(&text).unwrap().rows.len(), 3);
+    }
+
+    #[test]
+    fn adding_a_row_keeps_even_escaped_pipes_in_existing_body_cells() {
+        let source = "| A | B |\n| --- | --- |\n| a\\\\|b | second |";
+        let mut text = source.to_owned();
+        let table = Table::parse(&text).unwrap();
+        assert_eq!(text[table.rows[1][1].clone()].trim(), "second");
+        table.change(&mut text, 1, 0, TableAction::RowAfter);
+        assert_eq!(text, format!("{source}\n|  |  |"));
+    }
+
+    #[test]
+    fn pasted_backslash_and_pipe_stay_in_one_cell() {
+        let ctx = egui::Context::default();
+        let mut text = "| A | B |\n| --- | --- |\n| first | second |".to_owned();
+        let n = text.find("first").unwrap();
+        for (focus, events) in [
+            (Some(n..n + 5), vec![]),
+            (None, vec![egui::Event::Paste(r"a\|b".into())]),
+        ] {
+            let _ = ctx.run(
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default()
+                        .show(ctx, |ui| edit(ui, &mut text, focus.clone(), 17.));
+                },
+            );
+        }
+        let table = Table::parse(&text).unwrap();
+        assert_eq!(text[table.rows[1][1].clone()].trim(), "second");
+        let mut html = String::new();
+        pulldown_cmark::html::push_html(
+            &mut html,
+            Parser::new_ext(&text, crate::blocks::options()),
+        );
+        assert!(html.contains(r"<td>a\|b</td>"), "{html}");
     }
 
     #[test]
