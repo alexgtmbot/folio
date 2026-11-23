@@ -941,6 +941,26 @@ mod tests {
     }
 
     #[test]
+    fn escaped_punctuation_stays_literal_in_the_visual_editor() {
+        for (source, visible) in [
+            (r"\*one\*", "*one*"),
+            (r"\# Heading", "# Heading"),
+            (r"1\. Literal", "1. Literal"),
+            (r"\> Literal", "> Literal"),
+            (r"\[label\](path)", "[label](path)"),
+            (r"C:\\Notes", r"C:\Notes"),
+        ] {
+            let job = layout(source, 500., Color32::WHITE, false, 0, 17.);
+            assert_eq!(job.text.replace('\u{200b}', ""), visible, "{source}");
+            assert_eq!(job.text.chars().count(), source.chars().count());
+            assert_eq!(
+                layout(source, 500., Color32::WHITE, true, 0, 17.).text,
+                source
+            );
+        }
+    }
+
+    #[test]
     fn typed_heading_and_emphasis_hide_delimiters_in_write() {
         let source = "# My **notes**";
         let job = layout(source, 500., Color32::WHITE, false, 0, 17.);
