@@ -393,10 +393,12 @@ impl Editor {
         }
         if key(cmd | Modifiers::ALT, Key::P) {
             let tab = &mut self.tabs[self.active];
+            self.jump = Some(tab.selection.clone());
             tab.preview = tab.source || !tab.preview;
             tab.source = false;
         } else if key(cmd, Key::Slash) {
             let tab = &mut self.tabs[self.active];
+            self.jump = Some(tab.selection.clone());
             tab.source = !tab.source;
         }
         for (m, k, f) in [
@@ -504,6 +506,7 @@ impl Editor {
                 }
                 let tab = &mut self.tabs[self.active];
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let previous = (tab.source, tab.preview);
                     ui.selectable_value(&mut tab.source, true, "Source");
                     if ui
                         .selectable_label(!tab.source && tab.preview, "Split")
@@ -518,6 +521,9 @@ impl Editor {
                     {
                         tab.source = false;
                         tab.preview = false;
+                    }
+                    if previous != (tab.source, tab.preview) {
+                        self.jump = Some(tab.selection.clone());
                     }
                 });
             });
@@ -1674,6 +1680,36 @@ mod drop_tests {
 #[cfg(test)]
 mod slash_menu_tests {
     use super::*;
+
+    #[test]
+    fn switching_to_source_accepts_typing_at_the_visual_selection() {
+        let ctx = egui::Context::default();
+        configure_fonts(&ctx);
+        let mut app = Editor::with_documents([]);
+        let mut frame = eframe::Frame::_new_kittest();
+        for events in [
+            vec![],
+            vec![egui::Event::Text("café".into())],
+            vec![egui::Event::Key {
+                key: Key::Slash,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Modifiers::COMMAND,
+            }],
+            vec![egui::Event::Text("!".into())],
+        ] {
+            let _ = ctx.run(
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |ctx| eframe::App::update(&mut app, ctx, &mut frame),
+            );
+        }
+        assert!(app.tabs[0].source);
+        assert_eq!(app.tabs[0].doc.text, "café!");
+    }
 
     #[test]
     fn new_tab_keeps_pending_text_in_the_original_document() {
