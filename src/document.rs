@@ -123,6 +123,43 @@ pub fn exit_inline(text: &str, selection: &Range<usize>, cmd: Format) -> Option<
 pub fn format(text: &mut String, selection: Range<usize>, cmd: Format) -> Range<usize> {
     let start = byte_at(text, selection.start);
     let end = byte_at(text, selection.end);
+    if let Format::Block(prefix) = cmd
+        && (prefix.is_empty() || prefix.starts_with('#'))
+        && let Some(range) = crate::blocks::ranges(text)
+            .into_iter()
+            .find(|r| r.contains(&start) || start == text.len() && r.end == start)
+    {
+        let block = text[range.clone()].trim_end_matches(['\r', '\n']);
+        if end <= range.start + block.len()
+            && let Some((title, underline)) = block.rsplit_once('\n')
+            && !underline.trim().is_empty()
+            && (underline.trim().bytes().all(|b| b == b'=')
+                || underline.trim().bytes().all(|b| b == b'-'))
+            && matches!(
+                pulldown_cmark::Parser::new(block).next(),
+                Some(pulldown_cmark::Event::Start(
+                    pulldown_cmark::Tag::Heading { .. }
+                ))
+            )
+        {
+            let title = title.trim_end_matches('\r');
+            let offset = text[..range.start].chars().count();
+            let remap = |cursor: usize| {
+                offset + prefix.len() + (cursor - offset).min(title.chars().count())
+            };
+            let selection = remap(selection.start)..remap(selection.end);
+            let title = if prefix.is_empty() {
+                title.to_owned()
+            } else {
+                title.replace('\n', " ")
+            };
+            text.replace_range(
+                range.start..range.start + block.len(),
+                &format!("{prefix}{title}"),
+            );
+            return selection;
+        }
+    }
     match cmd {
         Format::Wrap("`") if start < end => {
             let content = &text[start..end];
@@ -564,6 +601,20 @@ mod tests {
             assert_eq!(md, expected);
             assert_eq!(selection.start, expected.chars().count());
         }
+    }
+
+    #[test]
+    fn restyling_underlined_headings_removes_the_old_marker() {
+        let mut md = "Intro\n\ncafé\nnotes\n-----\n\nBody".to_owned();
+        let selected = format(&mut md, 12..17, Format::Block("### "));
+        assert_eq!(md, "Intro\n\n### café notes\n\nBody");
+        assert_eq!(
+            &md[byte_at(&md, selected.start)..byte_at(&md, selected.end)],
+            "notes"
+        );
+        let mut md = "Title\n=====\n".to_owned();
+        assert_eq!(format(&mut md, 7..7, Format::Block("")), 5..5);
+        assert_eq!(md, "Title\n");
     }
 
     #[test]
