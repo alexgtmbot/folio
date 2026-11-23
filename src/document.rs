@@ -306,31 +306,58 @@ pub fn list_enter(text: &str, caret: usize) -> Option<(Range<usize>, String)> {
     let body = before.trim_start_matches([' ', '\t']);
     let indent = &before[..before.len() - body.len()];
     let (marker, content) = body.split_once(' ')?;
-    let next = match marker {
-        "-" | "+" | "*" => marker.to_owned(),
-        _ => {
-            let digits = marker.strip_suffix(['.', ')'])?;
-            if digits.is_empty() || digits.len() > 9 || !digits.bytes().all(|b| b.is_ascii_digit())
-            {
-                return None;
+    fn next_marker(marker: &str) -> Option<String> {
+        Some(match marker {
+            "-" | "+" | "*" => marker.to_owned(),
+            _ => {
+                let digits = marker.strip_suffix(['.', ')'])?;
+                if digits.is_empty()
+                    || digits.len() > 9
+                    || !digits.bytes().all(|b| b.is_ascii_digit())
+                {
+                    return None;
+                }
+                format!(
+                    "{}{}",
+                    digits.parse::<u32>().ok()?.checked_add(1)?,
+                    &marker[digits.len()..]
+                )
             }
-            format!(
-                "{}{}",
-                digits.parse::<u32>().ok()?.checked_add(1)?,
-                &marker[digits.len()..]
-            )
-        }
-    };
-    if !Parser::new(text).into_offset_iter().any(|(e, r)| {
-        matches!(e, Event::Start(Tag::Item)) && (start..=start + indent.len()).contains(&r.start)
-    }) {
-        return None;
+        })
     }
+    let next = next_marker(marker)?;
+    let mut ancestors = Vec::new();
+    let parent = Parser::new(text)
+        .into_offset_iter()
+        .find_map(|(event, range)| {
+            match event {
+                Event::Start(Tag::Item) => {
+                    if (start..=start + indent.len()).contains(&range.start) {
+                        return Some(ancestors.last().copied());
+                    }
+                    ancestors.push(range.start);
+                }
+                Event::End(pulldown_cmark::TagEnd::Item) => {
+                    ancestors.pop();
+                }
+                _ => {}
+            }
+            None
+        })?;
     let task =
         content.starts_with("[ ] ") || content.starts_with("[x] ") || content.starts_with("[X] ");
     let empty = if task { &content[4..] } else { content };
     if empty.trim().is_empty() && text[end..].split('\n').next()?.trim().is_empty() {
-        return Some((caret - before.chars().count()..caret, String::new()));
+        let mut replacement = String::new();
+        if let Some(parent) = parent {
+            let line = text[..parent].rfind('\n').map_or(0, |i| i + 1);
+            let prefix = &text[line..parent];
+            if prefix.bytes().all(|b| b == b' ') {
+                let marker = text[parent..].split_whitespace().next()?;
+                replacement = format!("{prefix}{} ", next_marker(marker)?);
+            }
+        }
+        return Some((caret - before.chars().count()..caret, replacement));
     }
     Some((
         caret..caret,
@@ -367,6 +394,20 @@ mod tests {
         pulldown_cmark::html::push_html(&mut html, pulldown_cmark::Parser::new(&md));
         assert_eq!(html.matches("<li>").count(), 3);
         assert!(html.contains("<p>Howdy</p>"));
+    }
+
+    #[test]
+    fn enter_on_empty_child_continues_parent_list() {
+        for (source, child, sibling) in [
+            ("- Hey\n  - Howdy\n\n    - ", "    - ", "  - "),
+            ("10. café\n\n    - ", "    - ", "11. "),
+        ] {
+            let caret = source.chars().count();
+            assert_eq!(
+                list_enter(source, caret),
+                Some((caret - child.len()..caret, sibling.into()))
+            );
+        }
     }
 
     #[test]
