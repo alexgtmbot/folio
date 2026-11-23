@@ -554,13 +554,17 @@ mod tests {
         assert!(text.ends_with("| next |  |"), "{text}");
     }
     #[test]
-    fn typing_in_a_focused_cell_updates_only_that_cell() {
+    fn visual_cell_edit_round_trips_through_a_markdown_file() {
         let ctx = egui::Context::default();
-        let mut text = "| A | B |\n| :- | -: |\n| first | second |".to_owned();
-        let n = text.find("first").unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("table.md");
+        let original = "\u{feff}| A | B |\r\n| :- | -: |\r\n| first | second |\r\n";
+        std::fs::write(&path, original).unwrap();
+        let mut doc = crate::document::Document::open(&path).unwrap();
+        let n = doc.text.find("first").unwrap();
         for (focus, events) in [
             (Some(n..n + 5), vec![]),
-            (None, vec![egui::Event::Text("a|b".into())]),
+            (None, vec![egui::Event::Text("é|🦀\u{202f}".into())]),
         ] {
             let _ = ctx.run(
                 egui::RawInput {
@@ -569,12 +573,18 @@ mod tests {
                 },
                 |ctx| {
                     egui::CentralPanel::default().show(ctx, |ui| {
-                        edit(ui, &mut text, focus.clone(), 17.).unwrap();
+                        edit(ui, &mut doc.text, focus.clone(), 17.).unwrap();
                     });
                 },
             );
         }
-        assert_eq!(text, "| A | B |\n| :- | -: |\n| a\\|b | second |");
+        doc.save(&path).unwrap();
+        let expected = original.replace("first", "é\\|🦀\u{202f}");
+        assert_eq!(std::fs::read(&path).unwrap(), expected.as_bytes());
+        let reopened = crate::document::Document::open(&path).unwrap();
+        let table = Table::parse(&reopened.text).unwrap();
+        assert_eq!(table.rows[1].len(), 2);
+        assert_eq!(&reopened.text[table.rows[1][0].clone()], " é\\|🦀\u{202f} ");
     }
 
     #[test]
