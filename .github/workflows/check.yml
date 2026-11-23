@@ -23,7 +23,7 @@ jobs:
       - run: rustup update stable --no-self-update
       - run: rustup default stable
       - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libgl1-mesa-dev libx11-dev libxcb1-dev xvfb xdotool
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-0 libwayland-dev libgl1-mesa-dev libx11-dev libxcb1-dev xvfb xdotool
       - run: cargo fmt --check
       - run: cargo test --locked
       - run: cargo build --release --locked
@@ -38,6 +38,7 @@ jobs:
             trap "kill $pid || true" EXIT
             window=$(timeout 30 xdotool search --sync --name "Window check.md" | head -1)
             xdotool windowfocus --sync "$window"
+            xdotool mousemove --window "$window" 300 65 click 1
             xdotool key ctrl+a
             xdotool type --delay 50 "Portable"
             xdotool key ctrl+1 ctrl+s
@@ -45,6 +46,7 @@ jobs:
               if [[ $(cat "$RUNNER_TEMP/Window check.md") == "# Portable" ]]; then exit 0; fi
               sleep 0.2
             done
+            cat "$RUNNER_TEMP/Window check.md" >&2
             exit 1
           '
       - if: runner.os == 'macOS'
