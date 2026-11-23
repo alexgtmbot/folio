@@ -561,6 +561,7 @@ pub fn block_enter(text: &str, caret: usize) -> Option<(Range<usize>, String)> {
     if !body.is_empty() {
         let mut depth = 0;
         let mut prose = false;
+        let mut delimiter = "";
         for (event, span) in Parser::new_ext(text, crate::blocks::options()).into_offset_iter() {
             if span.start > end {
                 break;
@@ -575,6 +576,39 @@ pub fn block_enter(text: &str, caret: usize) -> Option<(Range<usize>, String)> {
                 }
                 Event::Text(_) if prose && depth == 1 && (span.start..=span.end).contains(&end) => {
                     return Some((caret..caret, "\n\n".into()));
+                }
+                Event::Start(tag @ (Tag::Strong | Tag::Emphasis | Tag::Strikethrough))
+                    if prose && depth == 1 && span.contains(&end) =>
+                {
+                    let width = match tag {
+                        Tag::Strong => 2,
+                        Tag::Strikethrough => text[span.clone()]
+                            .bytes()
+                            .take_while(|&b| b == b'~')
+                            .count(),
+                        _ => 1,
+                    };
+                    delimiter = &text[span.start..span.start + width];
+                    depth += 1;
+                }
+                Event::Text(value)
+                    if depth == 2
+                        && !delimiter.is_empty()
+                        && span.start < end
+                        && end < span.end
+                        && value.as_ref() == &text[span.clone()] =>
+                {
+                    let left = text[span.start..end].trim_end_matches([' ', '\t']);
+                    let right = text[end..span.end].trim_start_matches([' ', '\t']);
+                    if !left.is_empty() && !right.is_empty() {
+                        let from = caret - (end - span.start - left.len());
+                        let to = caret + (span.end - end - right.len());
+                        return Some((from..to, format!("{delimiter}\n\n{delimiter}")));
+                    }
+                }
+                Event::End(_) if depth == 2 => {
+                    delimiter = "";
+                    depth -= 1;
                 }
                 Event::Start(_) => depth += 1,
                 Event::End(_) => depth -= 1,
@@ -708,7 +742,19 @@ mod tests {
                 Some((caret..caret, "\n\n".into()))
             );
         }
-        assert!(block_enter("Use **bold** here", 8).is_none());
+        for (source, caret, expected) in [
+            ("Use **bold** here", 8, "Use **bo**\n\n**ld** here"),
+            ("_Café noir_", 6, "_Café_\n\n_noir_"),
+            ("~~ab~~", 3, "~~a~~\n\n~~b~~"),
+        ] {
+            let (range, insert) = block_enter(source, caret).unwrap();
+            let mut result = source.to_owned();
+            result.replace_range(
+                byte_at(source, range.start)..byte_at(source, range.end),
+                &insert,
+            );
+            assert_eq!(result, expected);
+        }
         let nested = "- item\n  continuation";
         assert!(block_enter(nested, nested.len()).is_none());
     }
