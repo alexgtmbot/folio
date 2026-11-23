@@ -1,16 +1,60 @@
 use eframe::egui::{self, Color32, FontId, TextFormat, text::LayoutJob};
 use folio::{Fence, block_prefix, inline};
 
+pub fn preview(
+    ui: &mut egui::Ui,
+    cache: &mut egui_commonmark::CommonMarkCache,
+    text: &str,
+    base: Option<&std::path::Path>,
+) {
+    let mut viewer = egui_commonmark::CommonMarkViewer::new()
+        .max_image_width(Some(ui.available_width().max(1.) as usize));
+    if let Some(base) = base {
+        viewer = viewer.default_implicit_uri_scheme(format!("file://{}/", base.display()));
+    }
+    ui.scope(|ui| {
+        let style = ui.style_mut();
+        style
+            .text_styles
+            .insert(egui::TextStyle::Body, FontId::proportional(17.));
+        style.text_styles.insert(
+            egui::TextStyle::Heading,
+            FontId::new(32., egui::FontFamily::Name("Bold".into())),
+        );
+        style
+            .text_styles
+            .insert(egui::TextStyle::Monospace, FontId::monospace(15.));
+        style.spacing.item_spacing.y = 6.;
+        ui.add_space(8.);
+        viewer.show(ui, cache, text);
+    });
+}
+
 pub fn outline(text: &str) -> Vec<(usize, String)> {
-    let mut pos = 0;
-    let mut fence = Fence::default();
+    use pulldown_cmark::{Event, Parser, Tag, TagEnd};
     let mut result = Vec::new();
-    for line in text.split_inclusive('\n') {
-        let n = block_prefix(line);
-        if !fence.contains(line) && n > 0 && line.starts_with('#') {
-            result.push((pos, line[n..].trim().to_owned()));
+    let mut heading = None;
+    let mut last = 0;
+    let mut chars = 0;
+    for (event, range) in Parser::new_ext(text, pulldown_cmark::Options::all()).into_offset_iter() {
+        match event {
+            Event::Start(Tag::Heading { .. }) => {
+                chars += text[last..range.start].chars().count();
+                last = range.start;
+                heading = Some((chars, String::new()));
+            }
+            Event::End(TagEnd::Heading(_)) => {
+                if let Some(entry) = heading.take() {
+                    result.push(entry);
+                }
+            }
+            Event::Text(t) | Event::Code(t) => {
+                if let Some((_, name)) = &mut heading {
+                    name.push_str(&t);
+                }
+            }
+            _ => {}
         }
-        pos += line.chars().count();
     }
     result
 }

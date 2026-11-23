@@ -27,7 +27,9 @@ From this checkout, run `cargo run --release --locked`. To open an existing docu
 
 ## Editing
 
-Open local files through **File → Open** or drag them into the window. Each document has its own tab. Choose **Write** for visual formatting or **Source** for literal Markdown. The outline jumps to headings, and Find selects the next occurrence.
+Open local files through **File → Open** or drag them into the window. Each document has its own tab. Choose **Write** to edit alongside a live CommonMark preview, or **Source** for the single-pane Markdown editor. The preview renders nested lists, tables, task lists, fenced code, blockquotes, links, local images, strikethrough, footnotes, and definition lists. Raw HTML is displayed as text. The outline jumps to headings, and Find selects the next occurrence.
+
+In Write mode, type **/** at the beginning of a line and filter by name (for example, **/table**). Use ↑ or ↓ to select, Enter or Tab to insert, or Escape to keep the literal text. Slash commands are disabled inside code blocks.
 
 | Command | Mac | Windows / Linux |
 |---|---|---|
