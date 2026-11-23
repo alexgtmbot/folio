@@ -243,16 +243,19 @@ fn clicked_byte(ui: &egui::Ui, first: usize, pointer: egui::Pos2, source: &str) 
 }
 
 // Keep typographic prose in the editing layout when the caret leaves the block.
-fn styled_prose(source: &str, width: f32, color: Color32, size: f32) -> Option<LayoutJob> {
+fn styled_prose(
+    source: &str,
+    referenced: Option<&str>,
+    width: f32,
+    color: Color32,
+    size: f32,
+) -> Option<LayoutJob> {
     use pulldown_cmark::{Event, Parser, Tag, TagEnd};
     let source = source.trim_end_matches(['\r', '\n']);
-    if source.contains('[') {
-        return None;
-    }
     let mut depth = 0;
     let mut nested = false;
     let mut needs_styled_font = false;
-    for event in Parser::new_ext(source, crate::blocks::options()) {
+    for event in Parser::new_ext(referenced.unwrap_or(source), crate::blocks::options()) {
         match event {
             Event::Start(Tag::BlockQuote(None)) => {
                 depth += 1;
@@ -371,8 +374,8 @@ pub fn editable_block(
     }
     let width = ui.available_width();
     let color = ui.visuals().text_color();
-    if let Some(job) =
-        styled_prose(block, width, color, size).or_else(|| compact_list(block, width, color, size))
+    if let Some(job) = styled_prose(block, referenced.as_deref(), width, color, size)
+        .or_else(|| compact_list(block, width, color, size))
     {
         let galley = ui.fonts(|f| f.layout_job(job));
         let (rect, response) = ui.allocate_exact_size(galley.size(), egui::Sense::click());
@@ -1014,7 +1017,7 @@ mod tests {
             assert_eq!(job.text.replace('\u{200b}', ""), visible);
             assert_eq!(job.text.chars().count(), source.chars().count());
             assert_eq!(
-                styled_prose(source, 500., Color32::WHITE, 17.).unwrap(),
+                styled_prose(source, None, 500., Color32::WHITE, 17.).unwrap(),
                 job
             );
         }
@@ -1024,7 +1027,7 @@ mod tests {
     fn inactive_atx_headings_keep_the_editing_font_at_every_level() {
         for level in 1..=6 {
             let source = format!("{} Café", "#".repeat(level));
-            let inactive = styled_prose(&source, 500., Color32::WHITE, 17.).unwrap();
+            let inactive = styled_prose(&source, None, 500., Color32::WHITE, 17.).unwrap();
             let editing = layout(&source, 500., Color32::WHITE, false, 0, 17.);
             assert_eq!(inactive, editing);
             assert_eq!(inactive.text.replace('\u{200b}', ""), "Café");
@@ -1032,9 +1035,20 @@ mod tests {
     }
 
     #[test]
+    fn headings_with_literal_brackets_keep_their_font() {
+        let source = "# API array[0]";
+        let unrelated = format!("{source}\n\n[1]: guide.md");
+        let linked = format!("{source}\n\n[0]: guide.md");
+        assert!(styled_prose(source, Some(&unrelated), 500., Color32::WHITE, 17.).is_some());
+        assert!(styled_prose(source, Some(&linked), 500., Color32::WHITE, 17.).is_none());
+        assert!(styled_prose(source, None, 500., Color32::WHITE, 17.).is_some());
+    }
+
+    #[test]
     fn inactive_prose_preserves_real_bold_weight_and_interactive_links() {
         let job = styled_prose(
             "Visit **Marin Headlands** today.",
+            None,
             500.,
             Color32::WHITE,
             17.,
@@ -1046,7 +1060,16 @@ mod tests {
                 .any(|s| &job.text[s.byte_range.clone()] == "Marin Headlands"
                     && s.format.font_id.family == egui::FontFamily::Name("Bold".into()))
         );
-        assert!(styled_prose("**Visit** [Marin](guide.md)", 500., Color32::WHITE, 17.).is_none());
+        assert!(
+            styled_prose(
+                "**Visit** [Marin](guide.md)",
+                None,
+                500.,
+                Color32::WHITE,
+                17.
+            )
+            .is_none()
+        );
     }
 
     #[test]
@@ -1076,14 +1099,14 @@ mod tests {
     #[test]
     fn nested_quote_preview_matches_editing_and_preserves_interactive_rendering() {
         let source = "> first\n> > **second** > literal";
-        let preview = styled_prose(source, 480., Color32::WHITE, 17.).unwrap();
+        let preview = styled_prose(source, None, 480., Color32::WHITE, 17.).unwrap();
         assert_eq!(preview, layout(source, 480., Color32::WHITE, false, 0, 17.));
         for source in [
             "> one level",
-            "> outer\n> > [link][ref]",
+            "> outer\n> > [link](guide.md)",
             "> outer\n> > - [ ] task",
         ] {
-            assert!(styled_prose(source, 480., Color32::WHITE, 17.).is_none());
+            assert!(styled_prose(source, None, 480., Color32::WHITE, 17.).is_none());
         }
     }
 
