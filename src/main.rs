@@ -1665,6 +1665,50 @@ mod slash_menu_tests {
     use super::*;
 
     #[test]
+    fn keyboard_authoring_saves_a_heading_and_list_as_markdown() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("Authoring.md");
+        std::fs::write(&path, "").unwrap();
+        let mut app = Editor::with_documents([path.clone()]);
+        let ctx = egui::Context::default();
+        configure_fonts(&ctx);
+        let key = |key, modifiers| egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
+        };
+        for event in [
+            None,
+            Some(key(Key::Num1, Modifiers::COMMAND)),
+            None,
+            Some(egui::Event::Text("Field notes".into())),
+            Some(key(Key::Enter, Modifiers::NONE)),
+            Some(key(Key::Enter, Modifiers::NONE)),
+            Some(egui::Event::Text("- First stop".into())),
+            Some(key(Key::Enter, Modifiers::NONE)),
+            Some(egui::Event::Text("Second stop".into())),
+            Some(key(Key::S, Modifiers::COMMAND)),
+        ] {
+            let _ = ctx.run(
+                egui::RawInput {
+                    events: event.into_iter().collect(),
+                    ..Default::default()
+                },
+                |ctx| {
+                    app.shortcuts(ctx);
+                    app.editor(ctx);
+                },
+            );
+        }
+        assert_eq!(
+            Document::open(&path).unwrap().text,
+            "# Field notes\n\n- First stop\n- Second stop"
+        );
+    }
+
+    #[test]
     fn typing_a_nested_list_keeps_the_parent_at_body_size() {
         let ctx = egui::Context::default();
         configure_fonts(&ctx);
