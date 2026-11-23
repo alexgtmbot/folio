@@ -267,6 +267,24 @@ fn cell_source_byte(raw: &str, cursor: usize) -> usize {
     chars.next().map_or(raw.len(), |(byte, _)| byte)
 }
 
+fn cell_galley(
+    ui: &egui::Ui,
+    text: &str,
+    width: f32,
+    size: f32,
+    header: bool,
+) -> std::sync::Arc<egui::Galley> {
+    let mut job = crate::window::layout(text, width, ui.visuals().text_color(), false, 0, size);
+    if header {
+        for section in &mut job.sections {
+            if section.format.font_id.family == egui::FontFamily::Proportional {
+                section.format.font_id.family = egui::FontFamily::Name("Bold".into());
+            }
+        }
+    }
+    ui.fonts(|f| f.layout_job(job))
+}
+
 pub fn preview(
     ui: &mut egui::Ui,
     text: &str,
@@ -295,20 +313,7 @@ pub fn preview(
                     } else {
                         raw
                     };
-                    let mut job = crate::window::layout(
-                        display,
-                        width - 20.,
-                        ui.visuals().text_color(),
-                        false,
-                        0,
-                        size * 0.93,
-                    );
-                    if row == 0 {
-                        for s in &mut job.sections {
-                            s.format.font_id.family = egui::FontFamily::Name("Bold".into());
-                        }
-                    }
-                    ui.fonts(|f| f.layout_job(job))
+                    cell_galley(ui, display, width - 20., size * 0.93, row == 0)
                 })
                 .collect();
             let height = jobs.iter().map(|g| g.size().y).fold(size, f32::max) + 14.;
@@ -406,16 +411,7 @@ pub fn edit(
                     };
                     let mut value = raw.replace("\\|", "|");
                     let mut layout = |ui: &egui::Ui, s: &str, width: f32| {
-                        ui.fonts(|f| {
-                            f.layout_job(crate::window::layout(
-                                s,
-                                width,
-                                ui.visuals().text_color(),
-                                false,
-                                0,
-                                size,
-                            ))
-                        })
+                        cell_galley(ui, s, width, size, row == 0)
                     };
                     let id = ui.make_persistent_id(("cell", row, col));
                     if let Some(r) = &focus
@@ -697,6 +693,7 @@ mod tests {
     #[test]
     fn tab_from_last_cell_creates_row_and_keeps_typing_in_table() {
         let ctx = egui::Context::default();
+        crate::configure_fonts(&ctx);
         let mut text = "| A | B |\n| --- | --- |\n| first | last |".to_owned();
         let n = text.find("last").unwrap();
         let tab = egui::Event::Key {
@@ -727,6 +724,7 @@ mod tests {
     #[test]
     fn shift_tab_moves_from_first_body_cell_to_last_header() {
         let ctx = egui::Context::default();
+        crate::configure_fonts(&ctx);
         let mut text = "| A | B |\n| --- | --- |\n| first | last |".to_owned();
         let n = text.find("first").unwrap();
         let tab = egui::Event::Key {
@@ -755,8 +753,39 @@ mod tests {
         assert_eq!(text, "| A | nextB |\n| --- | --- |\n| first | last |");
     }
     #[test]
+    fn header_text_is_bold_and_inline_code_keeps_its_typeface() {
+        let ctx = egui::Context::default();
+        crate::configure_fonts(&ctx);
+        let _ = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let galley = cell_galley(ui, "Header `code`", 300., 17., true);
+                let family = |word| {
+                    &galley
+                        .job
+                        .sections
+                        .iter()
+                        .find(|s| &galley.job.text[s.byte_range.clone()] == word)
+                        .unwrap()
+                        .format
+                        .font_id
+                        .family
+                };
+                assert_eq!(family("Header "), &egui::FontFamily::Name("Bold".into()));
+                assert!(
+                    galley
+                        .job
+                        .sections
+                        .iter()
+                        .any(|s| s.format.font_id.family == egui::FontFamily::Monospace)
+                );
+            });
+        });
+    }
+
+    #[test]
     fn editing_positions_cell_text_using_the_column_alignment() {
         let ctx = egui::Context::default();
+        crate::configure_fonts(&ctx);
         let positions = |marker| {
             let mut text = format!("| Header |\n| {marker} |\n| value |");
             let frame = ctx.run(egui::RawInput::default(), |ctx| {
@@ -792,6 +821,7 @@ mod tests {
     #[test]
     fn enter_adds_a_row_and_shift_enter_moves_back_in_the_same_column() {
         let ctx = egui::Context::default();
+        crate::configure_fonts(&ctx);
         let mut text = "| A | B |\n| --- | --- |\n| one | two |".to_owned();
         let start = text.find("two").unwrap();
         let enter = |modifiers| egui::Event::Key {
@@ -883,6 +913,7 @@ mod tests {
     #[test]
     fn pasted_backslash_and_pipe_stay_in_one_cell() {
         let ctx = egui::Context::default();
+        crate::configure_fonts(&ctx);
         let mut text = "| A | B |\n| --- | --- |\n| first | second |".to_owned();
         let n = text.find("first").unwrap();
         for (focus, events) in [
@@ -913,6 +944,7 @@ mod tests {
     #[test]
     fn visual_cell_edit_round_trips_through_a_markdown_file() {
         let ctx = egui::Context::default();
+        crate::configure_fonts(&ctx);
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("table.md");
         let original = "\u{feff}| A | B |\r\n| :- | -: |\r\n| first | second |\r\n";
