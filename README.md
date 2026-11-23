@@ -45,6 +45,7 @@ In Write mode, type **/** at the beginning of a line and filter by name or alias
 |---|---|---|
 | Open / Save | ⌘O / ⌘S | Ctrl+O / Ctrl+S |
 | Undo / Redo | ⌘Z / ⇧⌘Z | Ctrl+Z / Ctrl+Shift+Z |
+| Move selected blocks up / down | ⌥⌘↑ / ⌥⌘↓ | Ctrl+Alt+↑ / Ctrl+Alt+↓ |
 | Toggle Split | ⌥⌘P | Ctrl+Alt+P |
 | Write / Source | ⌘/ | Ctrl+/ |
 | Numbered / bullet list | ⇧⌘7 / ⇧⌘8 | Ctrl+Shift+7 / Ctrl+Shift+8 |

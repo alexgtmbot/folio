@@ -41,6 +41,66 @@ pub fn ranges(text: &str) -> Vec<Range<usize>> {
     starts.windows(2).map(|w| w[0]..w[1]).collect()
 }
 
+/// Move complete top-level blocks, retaining internal Markdown and the file's
+/// final newline. The selection follows its content in Unicode characters.
+pub fn move_selection(
+    text: &mut String,
+    selection: &Range<usize>,
+    up: bool,
+) -> Option<Range<usize>> {
+    let blocks = ranges(text);
+    let index = |c| {
+        let byte = crate::document::byte_at(text, c);
+        blocks
+            .partition_point(|r| r.end <= byte)
+            .min(blocks.len() - 1)
+    };
+    let first = index(selection.start);
+    let last = index(
+        selection
+            .end
+            .saturating_sub(usize::from(!selection.is_empty())),
+    );
+    let neighbor = if up { first.checked_sub(1)? } else { last + 1 };
+    let adjacent = blocks.get(neighbor)?;
+    let moved = blocks.get(first)?.start..blocks.get(last)?.end;
+    let a = if up { adjacent } else { &moved };
+    let b = if up { &moved } else { adjacent };
+    let body = |r: &Range<usize>| text[r.clone()].trim_end_matches(['\r', '\n']);
+    let left = body(a);
+    let right = body(b);
+    if left.trim().is_empty() || right.trim().is_empty() {
+        return None;
+    }
+    let newline = if text[a.start + left.len()..a.end].contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
+    let separator = &text[a.start + left.len()..a.end];
+    let separator = if separator.matches('\n').count() < 2 {
+        newline.repeat(2)
+    } else {
+        separator.to_owned()
+    };
+    let new_start = a.start + if up { 0 } else { right.len() + separator.len() };
+    let moved_len = body(&moved).chars().count();
+    let old = text[..moved.start].chars().count();
+    let suffix = &text[b.start + right.len()..b.end];
+    let replacement = format!("{right}{separator}{left}{suffix}");
+    let mut candidate = text.clone();
+    candidate.replace_range(a.start..b.end, &replacement);
+    // Moving an unclosed fence, for example, could swallow the next block.
+    let after = ranges(&candidate);
+    if after.len() != blocks.len() || !after.iter().any(|r| r.start == new_start) {
+        return None;
+    }
+    let offset = candidate[..new_start].chars().count();
+    let map = |pos: usize| offset + (pos - old).min(moved_len);
+    *text = candidate;
+    Some(map(selection.start)..map(selection.end))
+}
+
 // A following block can refer to definitions anywhere in the document.
 pub fn with_references(text: &str, r: &Range<usize>, definitions: &[Range<usize>]) -> String {
     let mut block = text[r.clone()].to_owned();
@@ -89,6 +149,37 @@ pub fn paragraph_separator(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn moving_up_from_eof_and_moving_a_range() {
+        let mut text = "one\n\ntwo\n\nthree".to_owned();
+        let end = text.chars().count();
+        assert_eq!(move_selection(&mut text, &(end..end), true), Some(10..10));
+        assert_eq!(text, "one\n\nthree\n\ntwo");
+        let end = text.chars().count();
+        assert_eq!(move_selection(&mut text, &(5..end), true), Some(0..10));
+        assert_eq!(text, "three\n\ntwo\n\none");
+    }
+    #[test]
+    fn moving_blocks_keeps_selection_history_and_saved_source() {
+        let original = "# Header\nfirst 🦀\n\n> quote";
+        let mut text = original.to_owned();
+        let mut history = crate::history::History::new(&text);
+        let at = text[..text.find('🦀').unwrap()].chars().count();
+        let selected = move_selection(&mut text, &(at..at + 1), false).unwrap();
+        assert_eq!(text, "# Header\n> quote\n\nfirst 🦀");
+        assert_eq!(text.chars().nth(selected.start), Some('🦀'));
+        history.record(&text);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("note.md");
+        std::fs::write(&path, original).unwrap();
+        let mut doc = crate::document::Document::open(&path).unwrap();
+        doc.text = text.clone();
+        doc.save(&path).unwrap();
+        assert_eq!(std::fs::read_to_string(path).unwrap(), text);
+        history.restore(&mut text, false).unwrap();
+        assert_eq!(text, original);
+        assert!(move_selection(&mut text, &(0..0), true).is_none());
+    }
     #[test]
     fn join_paragraphs_preserves_inline_source_and_leaves_structural_blocks_alone() {
         let mut text = "**été**\n\nsecond\n\n> quote".to_owned();

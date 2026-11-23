@@ -304,11 +304,24 @@ impl Editor {
         ));
     }
 
+    fn move_blocks(&mut self, up: bool) {
+        let tab = &mut self.tabs[self.active];
+        if let Some(range) = blocks::move_selection(&mut tab.doc.text, &tab.selection, up) {
+            tab.selection = range.clone();
+            self.jump = Some(range);
+            tab.doc.dirty = true;
+            tab.edited = Some(Instant::now());
+        }
+    }
     fn shortcuts(&mut self, ctx: &egui::Context) {
         let key = |m, k| ctx.input_mut(|i| i.consume_key(m, k));
         let cmd = Modifiers::COMMAND;
         let shifted = cmd | Modifiers::SHIFT;
         if !ctx.memory(|m| m.has_focus(egui::Id::new("find query"))) {
+            let up = key(cmd | Modifiers::ALT, Key::ArrowUp);
+            if up || key(cmd | Modifiers::ALT, Key::ArrowDown) {
+                self.move_blocks(up);
+            }
             let redo = key(shifted, Key::Z) || (!cfg!(target_os = "macos") && key(cmd, Key::Y));
             if redo || key(cmd, Key::Z) {
                 let tab = &mut self.tabs[self.active];
@@ -489,6 +502,13 @@ impl Editor {
                     ] {
                         if ui.button(name).clicked() {
                             self.apply(Format::Block(prefix));
+                            ui.close_menu();
+                        }
+                    }
+                    ui.separator();
+                    for (name, up) in [("Move block up", true), ("Move block down", false)] {
+                        if ui.button(name).clicked() {
+                            self.move_blocks(up);
                             ui.close_menu();
                         }
                     }
