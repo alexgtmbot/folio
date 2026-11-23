@@ -38,17 +38,17 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "Bullet list",
-        aliases: &["ul", "unordered"],
+        aliases: &["ul", "unordered", "unordered list", "bulleted list"],
         template: "- ◇",
     },
     Command {
         name: "Numbered list",
-        aliases: &["ol", "ordered"],
+        aliases: &["ol", "ordered", "ordered list"],
         template: "1. ◇",
     },
     Command {
         name: "Task",
-        aliases: &["todo", "checkbox", "checklist"],
+        aliases: &["todo", "todo list", "to-do list", "checkbox", "checklist"],
         template: "- [ ] ◇",
     },
     Command {
@@ -196,7 +196,10 @@ pub fn query(text: &str, selection: &Range<usize>) -> Option<Range<usize>> {
         line
     };
     let query = line.strip_prefix('/')?;
-    if !query.chars().all(|c| c.is_ascii_alphanumeric() || c == ' ') {
+    if !query
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, ' ' | '-'))
+    {
         return None;
     }
     let start = end - line.len();
@@ -343,6 +346,23 @@ mod tests {
                 |e| matches!(e, Event::Start(Tag::FootnoteDefinition(n)) if n.as_ref() == "3")
             )
         );
+    }
+
+    #[test]
+    fn notion_list_names_insert_editable_markdown() {
+        for (name, expected) in [
+            ("to-do list", "- [ ] Buy milk"),
+            ("bulleted list", "- Buy milk"),
+            ("ordered list", "1. Buy milk"),
+        ] {
+            let mut text = format!("/{name}");
+            let end = text.len();
+            let range = query(&text, &(end..end)).unwrap();
+            let command = matching(&text[range.start + 1..range.end]).next().unwrap();
+            let caret = insert(&mut text, range, command);
+            text.insert_str(byte_at(&text, caret), "Buy milk");
+            assert_eq!(text, expected);
+        }
     }
 
     #[test]
