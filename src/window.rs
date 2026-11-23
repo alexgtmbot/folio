@@ -496,11 +496,17 @@ pub fn layout(
                     Event::Code(ref value) => {
                         let raw = &text[r.clone()];
                         let ticks = raw.bytes().take_while(|b| *b == b'`').count();
-                        let trailing = raw.chars().count() - ticks - value.chars().count();
+                        // CommonMark removes one padding space on each side of a code span.
+                        let content = &raw[ticks..raw.len() - ticks];
+                        let padded = content.starts_with([' ', '\n', '\r'])
+                            && content.ends_with([' ', '\n', '\r'])
+                            && value.bytes().any(|b| b != b' ');
+                        let leading = ticks + usize::from(padded);
+                        let trailing = raw.chars().count() - leading - value.chars().count();
                         job.append(
                             &format!(
                                 "{}{}{}",
-                                "\u{200b}".repeat(ticks),
+                                "\u{200b}".repeat(leading),
                                 value,
                                 "\u{200b}".repeat(trailing)
                             ),
@@ -737,6 +743,15 @@ mod tests {
             "☑ Read\n☐ Write\n• Ordinary"
         );
         assert_eq!(visual.chars().count(), source.chars().count());
+    }
+
+    #[test]
+    fn padded_code_keeps_visible_characters_at_their_source_positions() {
+        let source = "Use `` `🦀` `` here";
+        let visual = layout(source, 500., Color32::WHITE, false, 0, 17.).text;
+        let crab = source.chars().position(|c| c == '🦀').unwrap();
+        assert_eq!(visual.chars().nth(crab), Some('🦀'));
+        assert_eq!(visual.replace('\u{200b}', ""), "Use `🦀` here");
     }
 
     #[test]
