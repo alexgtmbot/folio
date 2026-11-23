@@ -964,6 +964,23 @@ impl Editor {
                             let has_focus = ui.memory(|m| m.has_focus(id));
                             if visual
                                 && has_focus
+                                && first == last
+                                && ui.input(|i| {
+                                    i.modifiers.matches_logically(Modifiers::COMMAND)
+                                        && i.key_pressed(Key::Enter)
+                                })
+                                && let Some(pos) =
+                                    document::exit_fenced_code(&mut tab.doc.text, active.clone())
+                            {
+                                ui.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::Enter));
+                                self.jump = Some(pos..pos);
+                                tab.doc.refresh_dirty();
+                                tab.edited = Some(Instant::now());
+                                ctx.request_repaint();
+                                return;
+                            }
+                            if visual
+                                && has_focus
                                 && ui.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::A))
                             {
                                 self.jump = Some(0..tab.doc.text.chars().count());

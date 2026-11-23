@@ -465,6 +465,54 @@ pub fn nest_item(text: &mut String, caret: usize, lift: bool) -> Option<usize> {
     Some(text[..new_byte].chars().count())
 }
 
+pub fn exit_fenced_code(text: &mut String, block: Range<usize>) -> Option<usize> {
+    use pulldown_cmark::{CodeBlockKind, Event, Parser, Tag};
+    let source = &text[block.clone()];
+    let (Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(_))), span) =
+        Parser::new(source).into_offset_iter().next()?
+    else {
+        return None;
+    };
+    let raw = &source[span];
+    let opening = raw.lines().next()?.trim_start();
+    let marker = opening.chars().next()?;
+    let fence = &opening[..opening.bytes().take_while(|b| *b == marker as u8).count()];
+    let closed = raw
+        .trim_end_matches(['\r', '\n'])
+        .rsplit_once('\n')
+        .is_some_and(|(_, last)| {
+            let trimmed = last.trim_start_matches(' ');
+            last.len() - trimmed.len() <= 3
+                && trimmed.trim_end().len() >= fence.len()
+                && trimmed.trim_end().bytes().all(|b| b == marker as u8)
+        });
+    let mut extra = String::new();
+    if !closed {
+        if !source.ends_with('\n') {
+            extra.push('\n');
+        }
+        extra.push_str(fence);
+        extra.push_str("\n\n");
+    } else {
+        extra.push_str(
+            &"\n".repeat(
+                2 - source
+                    .bytes()
+                    .rev()
+                    .take(2)
+                    .take_while(|b| *b == b'\n')
+                    .count(),
+            ),
+        );
+    }
+    let caret = block.end + extra.len();
+    if block.end < text.len() {
+        extra.push_str("\n\n");
+    }
+    text.insert_str(block.end, &extra);
+    Some(text[..caret].chars().count())
+}
+
 /// Return the character selection and replacement for structural Enter commands.
 pub fn block_enter(text: &str, caret: usize) -> Option<(Range<usize>, String)> {
     use pulldown_cmark::{Event, Parser, Tag};
@@ -724,6 +772,19 @@ mod tests {
             &md[byte_at(&md, selected.start)..byte_at(&md, selected.end)],
             "noir"
         );
+    }
+
+    #[test]
+    fn exiting_code_starts_a_paragraph_after_the_matching_fence() {
+        for source in ["```rs\n🦀\n```", "~~~~\ncode\n~~~", "```"] {
+            let mut text = source.to_owned();
+            let end = text.len();
+            let caret = exit_fenced_code(&mut text, 0..end).unwrap();
+            text.insert_str(byte_at(&text, caret), "Outside");
+            let mut html = String::new();
+            pulldown_cmark::html::push_html(&mut html, pulldown_cmark::Parser::new(&text));
+            assert!(html.ends_with("</code></pre>\n<p>Outside</p>\n"), "{html}");
+        }
     }
 
     #[test]
