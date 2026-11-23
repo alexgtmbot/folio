@@ -212,7 +212,11 @@ pub fn format(text: &mut String, selection: Range<usize>, cmd: Format) -> Range<
                 if index == 1 {
                     first_caret = output.chars().count();
                 }
-                output.push_str(&body[block_prefix(body)..]);
+                // Changing list style replaces the bullet, preserving any checkbox after it.
+                let content = body
+                    .strip_prefix("- ")
+                    .unwrap_or_else(|| &body[block_prefix(body)..]);
+                output.push_str(content);
             }
             let offset = text[..first].chars().count();
             let finish = offset + output.chars().count();
@@ -524,6 +528,16 @@ mod tests {
     }
 
     #[test]
+    fn switching_list_style_preserves_checked_and_unchecked_tasks() {
+        let mut md = "- [x] café\n- [ ] tea".to_owned();
+        let end = md.chars().count();
+        let selection = format(&mut md, 0..end, Format::Block("1. "));
+        assert_eq!(md, "1. [x] café\n2. [ ] tea");
+        format(&mut md, selection, Format::Block("- "));
+        assert_eq!(md, "- [x] café\n- [ ] tea");
+    }
+
+    #[test]
     fn task_format_preserves_list_marker_and_nesting() {
         for (source, expected) in [
             ("  * item", "  * [ ] item"),
@@ -627,9 +641,9 @@ mod tests {
         let start = "before\n".chars().count();
         let end = text[..text.find("after").unwrap()].chars().count();
         let selection = format(&mut text, start..end, Format::Block("1. "));
-        assert_eq!(text, "before\n1. 🦀\n\n2. café\n3. three\nafter");
+        assert_eq!(text, "before\n1. 🦀\n\n2. [x] café\n3. three\nafter");
         format(&mut text, selection, Format::Block("- "));
-        assert_eq!(text, "before\n- 🦀\n\n- café\n- three\nafter");
+        assert_eq!(text, "before\n- 🦀\n\n- [x] café\n- three\nafter");
     }
     #[test]
     fn save_as_redirects_subsequent_edits_to_the_copy() {
