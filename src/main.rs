@@ -1,8 +1,11 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+mod attachment;
 mod blocks;
 mod document;
 mod history;
 mod link;
+#[cfg(target_os = "macos")]
+mod mac_png;
 mod slash;
 mod table;
 mod window;
@@ -232,6 +235,43 @@ impl Editor {
             }
         }
     }
+    fn insert_images(&mut self, images: Vec<attachment::Image>) {
+        if images.is_empty() {
+            return;
+        }
+        if self.tabs[self.active].doc.path.is_none() && !self.save(false) {
+            return;
+        }
+        let tab = &mut self.tabs[self.active];
+        let mut inserted = Vec::new();
+        for image in images {
+            match attachment::store(tab.doc.path.as_deref().unwrap(), image) {
+                Ok(md) => inserted.push(md),
+                Err(e) => {
+                    self.error = Some(format!("Could not insert image. {e}"));
+                    break;
+                }
+            }
+        }
+        if inserted.is_empty() {
+            return;
+        }
+        let markdown = inserted.join("\n\n");
+        let start = byte_at(&tab.doc.text, tab.selection.start);
+        let end = byte_at(&tab.doc.text, tab.selection.end);
+        let caret = tab.doc.text[..start].chars().count() + markdown.chars().count();
+        tab.doc.text.replace_range(start..end, &markdown);
+        tab.selection = caret..caret;
+        if tab.source || tab.preview {
+            self.jump = Some(tab.selection.clone());
+        } else {
+            tab.edit_block = false;
+            self.jump = None;
+        }
+        tab.doc.dirty = true;
+        tab.edited = Some(Instant::now());
+    }
+
     fn insert_link(&mut self, image: bool) {
         let tab = &self.tabs[self.active];
         let range =
@@ -1047,6 +1087,31 @@ impl eframe::App for Editor {
         storage.set_string("text_size", self.text_size.to_string());
         storage.set_string("page_width", self.line_width.to_string());
     }
+    fn raw_input_hook(&mut self, ctx: &egui::Context, input: &mut egui::RawInput) {
+        if self.link.is_some()
+            || self.error.is_some()
+            || self.closing.is_some()
+            || ctx.memory(|m| m.has_focus(egui::Id::new("find query")))
+        {
+            return;
+        }
+        input.events.retain(|event| {
+            let egui::Event::Paste(text) = event else {
+                return true;
+            };
+            match attachment::clipboard() {
+                Ok(images) if !images.is_empty() => {
+                    self.insert_images(images);
+                    false
+                }
+                Err(e) if text.is_empty() => {
+                    self.error = Some(format!("Could not read clipboard. {e}"));
+                    false
+                }
+                _ => !text.is_empty(),
+            }
+        });
+    }
     fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
         if ctx.input(|i| i.viewport().close_requested())
             && !self.quit
@@ -1064,7 +1129,10 @@ impl eframe::App for Editor {
                     .filter_map(|f| f.path.clone())
                     .collect()
             });
-            for path in drops {
+            let (images, docs): (Vec<_>, Vec<_>) =
+                drops.into_iter().partition(|p| attachment::supported(p));
+            self.insert_images(images.into_iter().map(attachment::Image::File).collect());
+            for path in docs {
                 self.open(&path);
             }
         }

@@ -23,6 +23,11 @@ impl Link {
         }
     }
 
+    pub fn image_markdown(label: &str, path: &str) -> String {
+        let mut image = Self::new(0, 0..0, label.to_owned(), true);
+        image.destination = path.to_owned();
+        image.markdown()
+    }
     fn markdown(&self) -> String {
         let mut label = String::new();
         for c in self.label.chars() {

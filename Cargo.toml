@@ -5,6 +5,7 @@ edition = "2024"
 license = "MIT"
 
 [dependencies]
+arboard = "3.7"
 eframe = { version = "0.31.1", default-features = false, features = ["default_fonts", "glow", "persistence", "x11", "wayland"] }
 egui_commonmark = "0.20.0"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
@@ -21,3 +22,10 @@ strip = true
 [dev-dependencies]
 pulldown-cmark = { version = "0.12.2", default-features = false, features = ["html"] }
 serde_json = "1.0.154"
+
+# Upstream 0.31 discards paste key presses when no plain text is available.
+[patch.crates-io]
+egui-winit = { path = "vendor/egui-winit" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.9"

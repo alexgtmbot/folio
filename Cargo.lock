@@ -765,8 +765,6 @@ dependencies = [
 [[package]]
 name = "egui-winit"
 version = "0.31.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d9dfbb78fe4eb9c3a39ad528b90ee5915c252e77bbab9d4ebc576541ab67e13"
 dependencies = [
  "ahash",
  "arboard",
@@ -1022,6 +1020,8 @@ checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
 name = "folio"
 version = "0.3.1"
 dependencies = [
+ "arboard",
+ "core-foundation",
  "eframe",
  "egui_commonmark",
  "image",
