@@ -2350,6 +2350,46 @@ mod slash_menu_tests {
     }
 
     #[test]
+    fn horizontal_editing_skips_hidden_escapes_but_keeps_code_literal() {
+        for (source, arrows, expected) in [
+            (r"a\*b", vec![Key::ArrowLeft; 2], r"ax\*b"),
+            (
+                r"a\*b",
+                vec![Key::ArrowLeft, Key::ArrowLeft, Key::ArrowRight],
+                r"a\*xb",
+            ),
+            (r"`a\*b`", vec![Key::ArrowLeft; 3], r"`a\x*b`"),
+        ] {
+            let ctx = egui::Context::default();
+            configure_fonts(&ctx);
+            let mut app = Editor::with_documents([]);
+            let mut frame = |events| {
+                let _ = ctx.run(
+                    egui::RawInput {
+                        events,
+                        ..Default::default()
+                    },
+                    |ctx| app.editor(ctx),
+                );
+            };
+            frame(vec![]);
+            frame(vec![egui::Event::Text(source.into())]);
+            for key in arrows {
+                frame(vec![egui::Event::Key {
+                    key,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: Modifiers::NONE,
+                }]);
+                frame(vec![]);
+            }
+            frame(vec![egui::Event::Text("x".into())]);
+            assert_eq!(app.tabs[0].doc.text, expected);
+        }
+    }
+
+    #[test]
     fn typing_a_nested_list_keeps_the_parent_at_body_size() {
         let ctx = egui::Context::default();
         configure_fonts(&ctx);
