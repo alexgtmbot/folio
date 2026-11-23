@@ -5,7 +5,6 @@ use std::ops::Range;
 
 const CELL_PADDING: [char; 2] = [' ', '\t'];
 
-#[derive(Clone, Copy)]
 enum TableAction {
     RowBefore,
     RowAfter,
@@ -14,6 +13,7 @@ enum TableAction {
     ColumnRight,
     RemoveColumn,
     Align(&'static str),
+    PasteGrid(String),
     Remove,
 }
 
@@ -91,6 +91,32 @@ impl Table {
                 for line in &mut rows {
                     if col < line.len() {
                         line.remove(col);
+                    }
+                }
+            }
+            TableAction::PasteGrid(grid) => {
+                let grid = grid.replace("\r\n", "\n").replace('\r', "\n");
+                let width = grid
+                    .lines()
+                    .map(|line| col + line.split('\t').count())
+                    .max()
+                    .unwrap_or(cols)
+                    .max(cols);
+                rows[0].resize_with(width, String::new);
+                rows[1].resize_with(width, || "---".into());
+                for (offset, line) in grid.lines().enumerate() {
+                    let target = row + offset;
+                    let index = target + usize::from(target > 0);
+                    if index == rows.len() {
+                        rows.push(Vec::new());
+                    }
+                    let cells = &mut rows[index];
+                    let end = col + line.split('\t').count();
+                    if cells.len() < end {
+                        cells.resize_with(end, String::new);
+                    }
+                    for (c, value) in line.split('\t').enumerate() {
+                        cells[col + c] = value.replace('\\', "\\\\").replace('|', "\\|");
                     }
                 }
             }
@@ -329,6 +355,12 @@ pub fn edit(
                     let focused = ui.memory(|m| m.has_focus(id));
                     if focused {
                         ui.input_mut(|input| {
+                            if let Some(index) = input.events.iter().position(
+                                |e| matches!(e, egui::Event::Paste(s) if s.contains('\t')),
+                            ) && let egui::Event::Paste(grid) = input.events.remove(index)
+                            {
+                                structural = Some((row, col, TableAction::PasteGrid(grid)));
+                            }
                             for event in &mut input.events {
                                 if let egui::Event::Paste(text) = event
                                     && text.contains(['\r', '\n'])
@@ -605,6 +637,34 @@ mod tests {
         }
         assert_eq!(text, "| A | nextB |\n| --- | --- |\n| first | last |");
     }
+    #[test]
+    fn spreadsheet_paste_expands_table_from_focused_cell() {
+        let ctx = egui::Context::default();
+        crate::configure_fonts(&ctx);
+        let mut text = "| A | B |\n| :--- | ---: |\n| keep | here |".to_owned();
+        let start = text.find("here").unwrap();
+        for (focus, events) in [
+            (Some(start..start), vec![]),
+            (None, vec![egui::Event::Paste("α\tb|c\r\n🦀\td\r\n".into())]),
+        ] {
+            let _ = ctx.run(
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default()
+                        .show(ctx, |ui| edit(ui, &mut text, focus.clone(), 17.));
+                },
+            );
+        }
+        assert_eq!(
+            text,
+            "| A | B |  |\n| :--- | ---: | --- |\n| keep | α | b\\|c |\n|  | 🦀 | d |"
+        );
+        assert_eq!(Table::parse(&text).unwrap().rows.len(), 3);
+    }
+
     #[test]
     fn visual_cell_edit_round_trips_through_a_markdown_file() {
         let ctx = egui::Context::default();
