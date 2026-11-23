@@ -503,6 +503,11 @@ pub fn edit(
                         .inner_margin(egui::Margin::symmetric(6, 4))
                         .show(ui, |ui| {
                             egui::TextEdit::singleline(&mut value)
+                                .horizontal_align(match table.alignment[col] {
+                                    pulldown_cmark::Alignment::Center => egui::Align::Center,
+                                    pulldown_cmark::Alignment::Right => egui::Align::Max,
+                                    _ => egui::Align::Min,
+                                })
                                 .id(id)
                                 .frame(false)
                                 .desired_width((width - 14.).max(35.))
@@ -749,6 +754,41 @@ mod tests {
         }
         assert_eq!(text, "| A | nextB |\n| --- | --- |\n| first | last |");
     }
+    #[test]
+    fn editing_positions_cell_text_using_the_column_alignment() {
+        let ctx = egui::Context::default();
+        let positions = |marker| {
+            let mut text = format!("| Header |\n| {marker} |\n| value |");
+            let frame = ctx.run(egui::RawInput::default(), |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    ui.set_width(300.);
+                    edit(ui, &mut text, None, 17.);
+                });
+            });
+            ["Header", "value"].map(|label| {
+                frame
+                    .shapes
+                    .iter()
+                    .find_map(|shape| {
+                        if let egui::Shape::Text(shape) = &shape.shape
+                            && shape.galley.text() == label
+                        {
+                            Some(shape.pos.x)
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap()
+            })
+        };
+        let left = positions(":---");
+        let center = positions(":---:");
+        let right = positions("---:");
+        for i in 0..2 {
+            assert!(left[i] < center[i] && center[i] < right[i]);
+        }
+    }
+
     #[test]
     fn enter_adds_a_row_and_shift_enter_moves_back_in_the_same_column() {
         let ctx = egui::Context::default();
