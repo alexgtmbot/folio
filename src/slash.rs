@@ -74,7 +74,7 @@ pub const COMMANDS: &[Command] = &[
     Command {
         name: "Footnote",
         aliases: &["note"],
-        template: "[^1]: ◇",
+        template: "[^1]\n\n[^1]: ◇",
     },
     Command {
         name: "Heading 4",
@@ -197,9 +197,26 @@ pub fn query(text: &str, selection: &Range<usize>) -> Option<Range<usize>> {
 pub fn insert(text: &mut String, range: Range<usize>, command: &Command) -> usize {
     let prefix = text[..range.start].rsplit('\n').next().unwrap_or_default();
     let indent = list_content(prefix).map_or(0, |(_, indent)| indent);
-    let template = command
-        .template
-        .replace('\n', &format!("\n{}", " ".repeat(indent)));
+    let footnote;
+    let template = if command.name == "Footnote" {
+        // Reserve unresolved references too, so inserting a note cannot retarget them.
+        let used: std::collections::HashSet<&str> = text
+            .match_indices("[^")
+            .filter_map(|(at, _)| {
+                let tail = &text[at + 2..];
+                let digits = tail.bytes().take_while(u8::is_ascii_digit).count();
+                (digits > 0 && tail[digits..].starts_with(']')).then(|| &tail[..digits])
+            })
+            .collect();
+        let number = (1usize..)
+            .find(|n| !used.contains(n.to_string().as_str()))
+            .unwrap();
+        footnote = command.template.replace("[^1]", &format!("[^{number}]"));
+        &footnote
+    } else {
+        command.template
+    };
+    let template = template.replace('\n', &format!("\n{}", " ".repeat(indent)));
     let (before, after) = template.split_once('◇').expect("command insertion marker");
     let caret = text[..range.start].chars().count() + before.chars().count();
     text.replace_range(range, &format!("{before}{after}"));
@@ -209,6 +226,28 @@ pub fn insert(text: &mut String, range: Range<usize>, command: &Command) -> usiz
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn footnote_command_pairs_a_fresh_reference_and_definition() {
+        let mut text = "🦀[^1] and [^2]\n\n[^1]: original\n\n/foot".to_owned();
+        let start = text.find("/foot").unwrap();
+        let end = text.len();
+        let caret = insert(&mut text, start..end, matching("footnote").next().unwrap());
+        text.insert_str(byte_at(&text, caret), "new note");
+        assert!(text.ends_with("[^3]\n\n[^3]: new note"));
+        use pulldown_cmark::{Event, Parser, Tag};
+        let events: Vec<_> = Parser::new_ext(&text, crate::blocks::options()).collect();
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, Event::FootnoteReference(n) if n.as_ref() == "3"))
+        );
+        assert!(
+            events.iter().any(
+                |e| matches!(e, Event::Start(Tag::FootnoteDefinition(n)) if n.as_ref() == "3")
+            )
+        );
+    }
+
     #[test]
     fn aliases_resolve_to_the_same_command_used_by_keyboard_and_pointer() {
         for (query, expected) in [
