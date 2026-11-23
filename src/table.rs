@@ -585,9 +585,20 @@ pub fn edit(
                             }
                         }
                     } else if focused
-                        && ui.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, egui::Key::Enter))
+                        && ui.input_mut(|i| {
+                            i.consume_key(egui::Modifiers::SHIFT, egui::Key::Enter)
+                                || i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp)
+                        })
                     {
                         next_cell = Some((row.saturating_sub(1), col));
+                    } else if focused
+                        && ui.input_mut(|i| {
+                            i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)
+                        })
+                    {
+                        if row + 1 < table.rows.len() {
+                            next_cell = Some((row + 1, col));
+                        }
                     } else if focused
                         && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter))
                     {
@@ -1093,6 +1104,41 @@ mod tests {
             clipboard_rows("\"unfinished\tvalue"),
             [vec!["\"unfinished", "value"]]
         );
+    }
+
+    #[test]
+    fn vertical_arrows_edit_the_same_column_without_growing_the_table() {
+        let ctx = egui::Context::default();
+        crate::configure_fonts(&ctx);
+        let mut text = "A | B\n--- | ---\none | two".to_owned();
+        let start = text.find('B').unwrap();
+        let arrow = |key| egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        };
+        for (focus, events) in [
+            (Some(start..start), vec![]),
+            (None, vec![arrow(egui::Key::ArrowDown)]),
+            (None, vec![arrow(egui::Key::ArrowDown)]),
+            (None, vec![egui::Event::Text("body ".into())]),
+            (None, vec![arrow(egui::Key::ArrowUp)]),
+            (None, vec![egui::Event::Text("header ".into())]),
+        ] {
+            let _ = ctx.run(
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default()
+                        .show(ctx, |ui| edit(ui, &mut text, focus.clone(), 17.));
+                },
+            );
+        }
+        assert_eq!(text, "A | header B\n--- | ---\none | body two");
     }
 
     #[test]
