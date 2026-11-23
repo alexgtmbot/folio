@@ -259,10 +259,7 @@ fn styled_prose(source: &str, width: f32, color: Color32, size: f32) -> Option<L
                 nested |= depth > 1;
             }
             Event::End(TagEnd::BlockQuote(_)) => depth -= 1,
-            Event::Start(Tag::Heading { .. }) if source.trim_start().starts_with('#') => {
-                needs_styled_font = true
-            }
-            Event::Start(Tag::Strong) => needs_styled_font = true,
+            Event::Start(Tag::Heading { .. } | Tag::Strong) => needs_styled_font = true,
             Event::Start(Tag::Paragraph | Tag::Emphasis | Tag::Strikethrough)
             | Event::End(_)
             | Event::Text(_)
@@ -600,6 +597,18 @@ pub fn layout(
                 faces.push(f);
             }
             Event::End(tag) => {
+                if matches!(tag, pulldown_cmark::TagEnd::Heading(_)) {
+                    let end = r.start + text[r.clone()].trim_end_matches(['\r', '\n']).len();
+                    if pos < end && text[pos..end].contains('\n') {
+                        // The parser includes the Setext underline in the heading's trailing syntax.
+                        job.append(
+                            &"\u{200b}".repeat(text[pos..end].chars().count()),
+                            0.,
+                            body.clone(),
+                        );
+                        pos = end;
+                    }
+                }
                 if matches!(tag, pulldown_cmark::TagEnd::List(_)) {
                     list_depth -= 1;
                 }
@@ -996,6 +1005,19 @@ mod tests {
             .collect();
         assert_eq!(offsets, [0., 15., 30., 0.]);
         assert_eq!(job.text.chars().count(), source.chars().count());
+    }
+
+    #[test]
+    fn setext_headings_hide_the_underline_row_and_keep_source_offsets() {
+        for (source, visible) in [("Café\n====", "Café"), ("Two\n*lines*\n---", "Two\nlines")] {
+            let job = layout(source, 500., Color32::WHITE, false, 0, 17.);
+            assert_eq!(job.text.replace('\u{200b}', ""), visible);
+            assert_eq!(job.text.chars().count(), source.chars().count());
+            assert_eq!(
+                styled_prose(source, 500., Color32::WHITE, 17.).unwrap(),
+                job
+            );
+        }
     }
 
     #[test]
