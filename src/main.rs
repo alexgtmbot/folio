@@ -1123,6 +1123,19 @@ impl Editor {
                                 && !choose
                                 && tab.selection.is_empty()
                                 && ui.input(|i| {
+                                    i.modifiers == Modifiers::SHIFT && i.key_pressed(Key::Enter)
+                                })
+                                && let Some(insert) =
+                                    document::hard_break(&tab.doc.text, tab.selection.end)
+                                && ui.input_mut(|i| i.consume_key(Modifiers::SHIFT, Key::Enter))
+                            {
+                                ui.input_mut(|i| i.events.push(egui::Event::Paste(insert)));
+                            }
+                            if has_focus
+                                && !tab.source
+                                && !choose
+                                && tab.selection.is_empty()
+                                && ui.input(|i| {
                                     i.key_pressed(Key::Enter) && i.modifiers == Modifiers::NONE
                                 })
                                 && let Some((range, insert)) =

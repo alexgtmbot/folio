@@ -557,6 +557,32 @@ pub fn exit_fenced_code(text: &mut String, block: Range<usize>) -> Option<usize>
     Some(text[..caret].chars().count())
 }
 
+/// Insert a CommonMark hard break inside paragraph text.
+pub fn hard_break(text: &str, caret: usize) -> Option<String> {
+    use pulldown_cmark::{Event, Parser, Tag};
+    let byte = byte_at(text, caret);
+    let mut paragraph = false;
+    for (event, span) in Parser::new_ext(text, crate::blocks::options()).into_offset_iter() {
+        if span.start > byte {
+            break;
+        }
+        match event {
+            Event::Start(Tag::Paragraph) => paragraph = span.start < byte && byte <= span.end,
+            Event::End(pulldown_cmark::TagEnd::Paragraph) => paragraph = false,
+            Event::Text(_) if paragraph && span.start < byte && byte <= span.end => {
+                let spaces = text[..byte]
+                    .bytes()
+                    .rev()
+                    .take_while(|&b| b == b' ')
+                    .count();
+                return Some(format!("{}\n", " ".repeat(2usize.saturating_sub(spaces))));
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 /// Return the character selection and replacement for structural Enter commands.
 pub fn block_enter(text: &str, caret: usize) -> Option<(Range<usize>, String)> {
     use pulldown_cmark::{Event, Parser, Tag};
@@ -732,6 +758,16 @@ pub fn block_enter(text: &str, caret: usize) -> Option<(Range<usize>, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn hard_break_keeps_prose_in_one_paragraph_and_skips_code() {
+        let mut text = "Café noir".to_owned();
+        text.insert_str(byte_at(&text, 5), &hard_break(&text, 5).unwrap());
+        assert_eq!(text, "Café  \nnoir");
+        assert!(pulldown_cmark::Parser::new(&text).any(|e| e == pulldown_cmark::Event::HardBreak));
+        assert!(hard_break("Use `code`", 7).is_none());
+        assert!(hard_break("Intro\n\n```\ncode", 13).is_none());
+    }
+
     #[test]
     fn italic_shortcut_inside_pending_bold_keeps_both_styles() {
         let mut text = String::new();

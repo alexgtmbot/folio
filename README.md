@@ -35,7 +35,7 @@ In Write or Split, select words and paste an HTTP or HTTPS URL to link them. Sel
 
 Drop a PNG, JPEG, GIF, or WebP onto the editor to insert it at the caret. **⌘V** (Ctrl+V on Windows and Linux) also accepts clipboard images and copied image files. Folio saves pasted pixels as PNG and copies external images into a sibling folder such as `Field notes.assets/`. Images already inside the note’s directory are linked in place. For a new note, choose a save location when prompted. Keep the image folder with the Markdown file when sharing.
 
-In **Write**, press Enter between words in an ordinary paragraph to split it into two Markdown paragraphs. Folio inserts the blank line for you. Bold and italic carry across the split when the caret is inside styled text. For example, splitting **Café noir** between the words saves:
+In **Write**, press Enter between words in an ordinary paragraph to split it into two Markdown paragraphs. Folio inserts the blank line for you. Press Shift+Enter within paragraph text to start a new line in the same paragraph. Bold and italic carry across the split when the caret is inside styled text. For example, splitting **Café noir** between the words saves:
 
 ```markdown
 **Café**
