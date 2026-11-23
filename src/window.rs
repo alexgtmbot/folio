@@ -168,6 +168,8 @@ fn tasks(text: &str) -> impl Iterator<Item = std::ops::Range<usize>> + '_ {
         .filter_map(|(e, r)| matches!(e, pulldown_cmark::Event::TaskListMarker(_)).then_some(r))
 }
 pub enum BlockAction {
+    DragStart(usize),
+    DragEnd(usize),
     Edit(usize),
     Task(usize, bool),
     ReplaceTable(std::ops::Range<usize>, String),
@@ -344,8 +346,7 @@ pub fn editable_block(
     size: f32,
 ) -> BlockAction {
     let pointer = ui.input(|i| {
-        i.pointer
-            .primary_clicked()
+        (i.pointer.primary_pressed() || i.pointer.primary_released())
             .then(|| i.pointer.interact_pos())
             .flatten()
     });
@@ -394,7 +395,14 @@ pub fn editable_block(
         let block = &text[r.clone()];
         let byte = clicked_byte(ui, first.unwrap_or(0), p, block)
             .unwrap_or_else(|| folio::block_prefix(block));
-        BlockAction::Edit(r.start + byte)
+        let at = r.start + byte;
+        if ui.input(|i| i.pointer.primary_clicked()) {
+            BlockAction::Edit(at)
+        } else if ui.input(|i| i.pointer.primary_pressed()) {
+            BlockAction::DragStart(at)
+        } else {
+            BlockAction::DragEnd(at)
+        }
     } else {
         BlockAction::None
     }
