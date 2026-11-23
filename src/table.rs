@@ -256,6 +256,17 @@ fn cell_menu(response: &egui::Response, row: usize, cols: usize) -> Option<Table
     chosen
 }
 
+fn cell_source_byte(raw: &str, cursor: usize) -> usize {
+    let mut chars = raw.char_indices().peekable();
+    for _ in 0..cursor {
+        let Some((_, c)) = chars.next() else { break };
+        if c == '\\' && chars.peek().is_some_and(|(_, next)| *next == '|') {
+            chars.next();
+        }
+    }
+    chars.next().map_or(raw.len(), |(byte, _)| byte)
+}
+
 pub fn preview(
     ui: &mut egui::Ui,
     text: &str,
@@ -277,8 +288,15 @@ pub fn preview(
                 .iter()
                 .map(|span| {
                     let raw = text[span.clone()].trim_matches(CELL_PADDING);
+                    let decoded;
+                    let display = if raw.contains("\\|") {
+                        decoded = raw.replace("\\|", "|");
+                        &decoded
+                    } else {
+                        raw
+                    };
                     let mut job = crate::window::layout(
-                        raw,
+                        display,
                         width - 20.,
                         ui.visuals().text_color(),
                         false,
@@ -341,7 +359,7 @@ pub fn preview(
                         hit = crate::window::BlockAction::Edit(
                             offset
                                 + start
-                                + crate::document::byte_at(
+                                + cell_source_byte(
                                     raw.trim_matches(CELL_PADDING),
                                     galley.cursor_from_pos(pos - origin).ccursor.index,
                                 ),
@@ -556,6 +574,19 @@ pub fn edit(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn rendered_inline_code_decodes_table_pipes_and_keeps_source_positions() {
+        let ctx = egui::Context::default();
+        crate::configure_fonts(&ctx);
+        let source = "| Name |\n| --- |\n| `é\\|b` |";
+        let output = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| preview(ui, source, 17., 0));
+        });
+        assert!(output.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text().replace('\u{200b}', "") == "é|b")));
+        let raw = r"`é\|b`";
+        assert_eq!(&raw[cell_source_byte(raw, 3)..], "b`");
+    }
+
     #[test]
     fn right_click_rendered_cell_can_insert_a_row() {
         let ctx = egui::Context::default();
