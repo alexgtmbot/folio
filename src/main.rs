@@ -1712,6 +1712,41 @@ mod slash_menu_tests {
     }
 
     #[test]
+    fn saved_list_conversion_can_be_undone_and_redone() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("Undo.md");
+        std::fs::write(&path, "Trail notes").unwrap();
+        let ctx = egui::Context::default();
+        configure_fonts(&ctx);
+        let mut app = Editor::with_documents([path.clone()]);
+        let mut frame = eframe::Frame::_new_kittest();
+        let mut press = |key, modifiers| {
+            let input = egui::RawInput {
+                modifiers,
+                events: vec![egui::Event::Key {
+                    key,
+                    modifiers,
+                    pressed: true,
+                    repeat: false,
+                    physical_key: None,
+                }],
+                ..Default::default()
+            };
+            let _ = ctx.run(input, |ctx| eframe::App::update(&mut app, ctx, &mut frame));
+        };
+        let cmd = Modifiers::COMMAND;
+        for (key, modifiers, expected) in [
+            (Key::Num8, cmd | Modifiers::SHIFT, "- Trail notes"),
+            (Key::Z, cmd, "Trail notes"),
+            (Key::Z, cmd | Modifiers::SHIFT, "- Trail notes"),
+        ] {
+            press(key, modifiers);
+            press(Key::S, cmd);
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), expected);
+        }
+    }
+
+    #[test]
     fn new_tab_keeps_pending_text_in_the_original_document() {
         let ctx = egui::Context::default();
         configure_fonts(&ctx);
