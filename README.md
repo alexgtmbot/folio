@@ -31,6 +31,8 @@ Open local files through **File → Open** or drag them into the window. Each do
 
 Choose **Format → Heading 1** and type, or start a line with `# `. Write draws the heading in place. Select words and choose **Bold**, or type paired emphasis markers. **Style** controls appearance, text size, and page width. These preferences stay outside the document. Click a rendered task checkbox to update its Markdown checkmark.
 
+Select words and press **⌘K** (Ctrl+K on Windows and Linux) to add a URL. **Format → Insert image** accepts alternative text and a local image path. The same forms open from `/link` and `/image`.
+
 Choose **Format → Insert table** or type `/table` and press Enter. Click a table to edit its cells, use Tab to move between fields, and choose **+ Row** or **+ Column** to expand it. A typed or pasted GitHub-style pipe table opens the same grid. Source shows the saved pipe syntax. Escape returns to the rendered table. [See the table editor](screenshots/table.png).
 
 The test suite checks the parser against all 652 examples in CommonMark 0.31.2 and exercises the preview for each example. Tables, tasks, footnotes, definition lists, and strikethrough are extensions. HTML is inert and remote images are disabled.

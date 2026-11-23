@@ -2,6 +2,7 @@
 mod blocks;
 mod document;
 mod history;
+mod link;
 mod slash;
 mod table;
 mod window;
@@ -75,6 +76,7 @@ struct Editor {
     error: Option<String>,
     find: Option<String>,
     focus_find: bool,
+    link: Option<link::Link>,
     show_outline: bool,
     line_width: f32,
     text_size: f32,
@@ -93,6 +95,7 @@ impl Editor {
             error: None,
             find: None,
             focus_find: false,
+            link: None,
             show_outline: false,
             line_width: 730.,
             text_size: 17.,
@@ -229,6 +232,18 @@ impl Editor {
             }
         }
     }
+    fn insert_link(&mut self, image: bool) {
+        let tab = &self.tabs[self.active];
+        let range =
+            byte_at(&tab.doc.text, tab.selection.start)..byte_at(&tab.doc.text, tab.selection.end);
+        self.link = Some(link::Link::new(
+            tab.id,
+            range.clone(),
+            tab.doc.text[range].to_owned(),
+            image,
+        ));
+    }
+
     fn shortcuts(&mut self, ctx: &egui::Context) {
         let key = |m, k| ctx.input_mut(|i| i.consume_key(m, k));
         let cmd = Modifiers::COMMAND;
@@ -244,6 +259,9 @@ impl Editor {
                     tab.recorded = tab.edited;
                 }
             }
+        }
+        if key(cmd, Key::K) {
+            self.insert_link(false);
         }
         if key(shifted, Key::S) {
             self.save(true);
@@ -351,6 +369,12 @@ impl Editor {
                     ] {
                         if ui.button(name).clicked() {
                             self.apply(f);
+                            ui.close_menu();
+                        }
+                    }
+                    for (name, image) in [("Insert link", false), ("Insert image", true)] {
+                        if ui.button(name).clicked() {
+                            self.insert_link(image);
                             ui.close_menu();
                         }
                     }
@@ -986,6 +1010,16 @@ impl Editor {
                                                     });
                                             });
                                         if let Some(i) = picked {
+                                            if matches!(matches[i].name, "Link" | "Image") {
+                                                self.link = Some(link::Link::new(
+                                                    tab.id,
+                                                    r,
+                                                    String::new(),
+                                                    matches[i].name == "Image",
+                                                ));
+                                                ctx.request_repaint();
+                                                return;
+                                            }
                                             let pos =
                                                 slash::insert(&mut tab.doc.text, r, matches[i]);
                                             self.jump = Some(pos..pos);
@@ -1021,7 +1055,7 @@ impl eframe::App for Editor {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.finish_close(ctx, Closing::App);
         }
-        if self.closing.is_none() && self.error.is_none() {
+        if self.closing.is_none() && self.error.is_none() && self.link.is_none() {
             self.shortcuts(ctx);
             let drops: Vec<PathBuf> = ctx.input(|i| {
                 i.raw
@@ -1036,6 +1070,28 @@ impl eframe::App for Editor {
         }
         self.toolbar(ctx);
         self.editor(ctx);
+        if let Some(link) = &mut self.link
+            && let Some(result) = link.show(ctx)
+        {
+            if let Some(markdown) = result
+                && self.tabs[self.active].id == link.tab
+                && self.tabs[self.active]
+                    .doc
+                    .text
+                    .get(link.range.clone())
+                    .is_some()
+            {
+                let tab = &mut self.tabs[self.active];
+                let caret =
+                    tab.doc.text[..link.range.start].chars().count() + markdown.chars().count();
+                tab.doc.text.replace_range(link.range.clone(), &markdown);
+                tab.doc.dirty = true;
+                tab.edited = Some(Instant::now());
+                self.jump = Some(caret..caret);
+            }
+            self.link = None;
+            ctx.request_repaint();
+        }
         for tab in &mut self.tabs {
             if tab.edited != tab.recorded {
                 tab.history.record(&tab.doc.text);
