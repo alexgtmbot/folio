@@ -490,51 +490,61 @@ pub fn layout(
     let mut pos = 0;
     // egui indexes the galley and the source by Unicode scalar. Keep one
     // invisible glyph per delimiter so selections still edit the original bytes.
-    let append_gap = |job: &mut LayoutJob, gap: std::ops::Range<usize>, before_task: bool| {
-        let end = gap.end;
-        let mut at = gap.start;
-        for line in text[gap].split_inclusive('\n') {
-            let trimmed = line.trim_start_matches([' ', '\t']);
-            let indent = line.len() - trimmed.len();
-            let line_start = at == 0 || text[..at].ends_with('\n');
-            let quote_prefix = if line_start {
-                trimmed
-                    .bytes()
-                    .take_while(|b| matches!(b, b'>' | b' ' | b'\t'))
-                    .count()
-            } else {
-                0
-            };
-            let marker = indent + quote_prefix;
-            let content = &line[marker..];
-            let bullet = line_start && ["- ", "+ ", "* "].iter().any(|p| content.starts_with(p));
-            let task_bullet = bullet && before_task && at + line.len() == end;
-            let mut shown = String::new();
-            for (i, c) in line.char_indices() {
-                shown.push(if c == '\n' || (line_start && i < indent) {
-                    c
-                } else if i < indent + quote_prefix && c == '>' {
-                    '|'
-                } else if i < indent + quote_prefix && trimmed.starts_with('>') {
-                    c
-                } else if bullet && !task_bullet && i == marker {
-                    '•'
-                } else if c == ' '
-                    && line_start
-                    && !task_bullet
+    let append_gap =
+        |job: &mut LayoutJob, gap: std::ops::Range<usize>, before_task: bool, depth: usize| {
+            let end = gap.end;
+            let mut at = gap.start;
+            for line in text[gap].split_inclusive('\n') {
+                let trimmed = line.trim_start_matches([' ', '\t']);
+                let indent = line.len() - trimmed.len();
+                let line_start = at == 0 || text[..at].ends_with('\n');
+                let quote_prefix = if line_start {
+                    trimmed
+                        .bytes()
+                        .take_while(|b| matches!(b, b'>' | b' ' | b'\t'))
+                        .count()
+                } else {
+                    0
+                };
+                let marker = indent + quote_prefix;
+                let content = &line[marker..];
+                let bullet =
+                    line_start && ["- ", "+ ", "* "].iter().any(|p| content.starts_with(p));
+                let task_bullet = bullet && before_task && at + line.len() == end;
+                let mut shown = String::new();
+                for (i, c) in line.char_indices() {
+                    shown.push(if c == '\n' || (line_start && i < indent) {
+                        c
+                    } else if i < indent + quote_prefix && c == '>' {
+                        '|'
+                    } else if i < indent + quote_prefix && trimmed.starts_with('>') {
+                        c
+                    } else if bullet && !task_bullet && i == marker {
+                        '•'
+                    } else if c == ' '
+                        && line_start
+                        && !task_bullet
+                        && (bullet || content.as_bytes().first().is_some_and(u8::is_ascii_digit))
+                    {
+                        ' '
+                    } else if line_start && (c.is_ascii_digit() || matches!(c, '.' | ')' | '>')) {
+                        c
+                    } else {
+                        '\u{200b}'
+                    });
+                }
+                let extra_indent = if line_start
+                    && indent > 0
                     && (bullet || content.as_bytes().first().is_some_and(u8::is_ascii_digit))
                 {
-                    ' '
-                } else if line_start && (c.is_ascii_digit() || matches!(c, '.' | ')' | '>')) {
-                    c
+                    size * 0.75 * depth.saturating_sub(1) as f32
                 } else {
-                    '\u{200b}'
-                });
+                    0.
+                };
+                job.append(&shown, extra_indent, body.clone());
+                at += line.len();
             }
-            job.append(&shown, 0., body.clone());
-            at += line.len();
-        }
-    };
+        };
     for (event, r) in Parser::new_ext(text, crate::blocks::options()).into_offset_iter() {
         match event {
             Event::Start(tag) => {
@@ -545,7 +555,7 @@ pub fn layout(
                         let item = raw.trim_start_matches([' ', '\t']);
                         if matches!(item.lines().next(), Some("-" | "+" | "*")) {
                             let marker = r.start + raw.len() - item.len();
-                            append_gap(&mut job, pos..marker, false);
+                            append_gap(&mut job, pos..marker, false, list_depth);
                             job.append("•", 0., body.clone());
                             pos = marker + 1;
                         }
@@ -554,7 +564,7 @@ pub fn layout(
                         let before = text[..r.start].trim_end_matches([' ', '\t']);
                         if list_depth > 0 && before.ends_with("\n\n") && pos < before.len() {
                             let blank = before.len() - 1;
-                            append_gap(&mut job, pos..blank, false);
+                            append_gap(&mut job, pos..blank, false, list_depth);
                             job.append("\u{200b}", 0., body.clone());
                             pos = blank + 1;
                         }
@@ -583,7 +593,7 @@ pub fn layout(
             }
             _ if r.start >= pos => {
                 let task = matches!(event, Event::TaskListMarker(_));
-                append_gap(&mut job, pos..r.start, task);
+                append_gap(&mut job, pos..r.start, task, list_depth);
                 let f = faces.last().unwrap();
                 match event {
                     Event::TaskListMarker(done) => {
@@ -648,7 +658,7 @@ pub fn layout(
             _ => {}
         }
     }
-    append_gap(&mut job, pos..text.len(), false);
+    append_gap(&mut job, pos..text.len(), false, list_depth);
     job
 }
 
@@ -958,6 +968,20 @@ mod tests {
                 source
             );
         }
+    }
+
+    #[test]
+    fn nested_bullets_gain_visual_indent_without_changing_caret_offsets() {
+        let source = "- Parent\n  - Child\n    - Grandchild\n- Sibling";
+        let job = layout(source, 500., Color32::WHITE, false, 0, 20.);
+        let offsets: Vec<_> = job
+            .sections
+            .iter()
+            .filter(|s| job.text[s.byte_range.clone()].contains('•'))
+            .map(|s| s.leading_space)
+            .collect();
+        assert_eq!(offsets, [0., 15., 30., 0.]);
+        assert_eq!(job.text.chars().count(), source.chars().count());
     }
 
     #[test]
