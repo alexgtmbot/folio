@@ -1,5 +1,89 @@
 use eframe::egui::{self, Color32, FontId, TextFormat, text::LayoutJob};
 
+// egui's file loader reads a filesystem path verbatim. Resolve URI escapes only
+// for display, keeping the portable Markdown destination intact on disk.
+fn local_images<'a>(text: &'a str, base: Option<&std::path::Path>) -> std::borrow::Cow<'a, str> {
+    use pulldown_cmark::{Event, Parser, Tag, TagEnd};
+    if !text.contains("![") {
+        return text.into();
+    }
+    let mut events = Parser::new_ext(text, crate::blocks::options()).into_offset_iter();
+    let mut display = String::new();
+    let mut previous = 0;
+    while let Some((event, span)) = events.next() {
+        let Event::Start(Tag::Image {
+            dest_url, title, ..
+        }) = event
+        else {
+            continue;
+        };
+        let raw = dest_url.strip_prefix("file://").unwrap_or(&dest_url);
+        if raw.contains("://") || raw.starts_with("data:") {
+            continue;
+        }
+        let Ok(decoded) = percent_encoding::percent_decode_str(raw).decode_utf8() else {
+            continue;
+        };
+        if decoded.chars().any(char::is_control) {
+            continue;
+        }
+        if decoded == raw && !std::path::Path::new(raw).is_absolute() {
+            continue;
+        }
+        let path = base
+            .unwrap_or(std::path::Path::new(""))
+            .join(decoded.as_ref());
+        let mut depth = 1;
+        display.push_str(&text[previous..span.start]);
+        display.push_str("![");
+        for (event, _) in events.by_ref() {
+            match event {
+                Event::Start(Tag::Image { .. }) => depth += 1,
+                Event::End(TagEnd::Image) => {
+                    depth -= 1;
+                    if depth == 0 {
+                        break;
+                    }
+                }
+                Event::Text(s) | Event::Code(s) => {
+                    for c in s.chars() {
+                        if c.is_ascii_punctuation() {
+                            display.push('\\');
+                        }
+                        display.push(c);
+                    }
+                }
+                _ => {}
+            }
+        }
+        display.push_str("](<file://");
+        for c in path.to_string_lossy().chars() {
+            if matches!(c, '\\' | '<' | '>' | '&' | '|') {
+                display.push('\\');
+            }
+            display.push(c);
+        }
+        display.push('>');
+        if !title.is_empty() {
+            display.push_str(" \"");
+            for c in title.chars() {
+                if matches!(c, '"' | '\\' | '&') {
+                    display.push('\\');
+                }
+                display.push(c);
+            }
+            display.push('"');
+        }
+        display.push(')');
+        previous = span.end;
+    }
+    if previous == 0 {
+        return text.into();
+    }
+    display.push_str(&text[previous..]);
+    display.into()
+}
+
 // CommonMark permits displaying soft breaks as line breaks. Keep the editor's line layout in preview.
 fn preview_text(text: &str) -> std::borrow::Cow<'_, str> {
     use pulldown_cmark::{Event, Parser};
@@ -56,7 +140,8 @@ fn render(
             .insert(egui::TextStyle::Monospace, FontId::monospace(size * 0.9));
         style.spacing.item_spacing.y = 6.;
         ui.add_space(8.);
-        let display = preview_text(text);
+        let local = local_images(text, base);
+        let display = preview_text(&local);
         if interactive && text.contains('[') {
             let mut edited = display.to_string();
             viewer.show_mut(ui, cache, &mut edited);
@@ -282,6 +367,27 @@ pub fn layout(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn local_image_uri_is_decoded_only_for_display() {
+        use pulldown_cmark::{Event, Parser, Tag};
+        let md = "![the **map**][p]\n\n[p]: photos/Trail%20map.png";
+        let display = local_images(md, Some(std::path::Path::new("notebook")));
+        let dest = Parser::new(&display)
+            .find_map(|e| match e {
+                Event::Start(Tag::Image { dest_url, .. }) => Some(dest_url),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(
+            std::path::Path::new(dest.strip_prefix("file://").unwrap()),
+            std::path::Path::new("notebook/photos/Trail map.png")
+        );
+        assert_eq!(
+            local_images("![x](https://example.test/a%20b)", None),
+            "![x](https://example.test/a%20b)"
+        );
+    }
+
     #[test]
     fn commonmark_spec_examples() {
         let examples: Vec<serde_json::Value> =

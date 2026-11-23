@@ -1025,6 +1025,7 @@ dependencies = [
  "eframe",
  "egui_commonmark",
  "image",
+ "percent-encoding",
  "pulldown-cmark",
  "rfd",
  "serde_json",
