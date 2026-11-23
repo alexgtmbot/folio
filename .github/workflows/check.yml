@@ -32,17 +32,26 @@ jobs:
         name: Open Markdown files from the desktop launcher and edit in X11
         run: |
           printf 'Original text' > "$RUNNER_TEMP/Window check.md"
-          xvfb-run -a bash -eu -o pipefail -c '
+          xvfb-run -a bash -eux -o pipefail -c '
             export PATH="$PWD/target/release:$PATH"
             touch "$RUNNER_TEMP/Second note.md"
             gio launch assets/local.folio.editor.desktop "$RUNNER_TEMP/Window check.md" "$RUNNER_TEMP/Second note.md"
-            window=$(timeout 30 xdotool search --sync --name "Second note[.]md" | head -1)
+            find_window() {
+              for attempt in {1..60}; do
+                window=$(xdotool search --onlyvisible --name "$1" | head -1) && return 0
+                sleep 0.5
+              done
+              xwininfo -root -tree >&2
+              return 1
+            }
+            find_window "Second note[.]md"
             pid=$(xdotool getwindowpid "$window")
             trap "kill $pid || true" EXIT
             xdotool windowfocus --sync "$window"
             xdotool key ctrl+w
-            first=$(timeout 30 xdotool search --sync --pid "$pid" --all --name "Window check[.]md" | head -1)
-            test "$first" = "$window"
+            second=$window
+            find_window "Window check[.]md"
+            test "$second" = "$window"
             xdotool mousemove --window "$window" 300 65 click 1
             xdotool key ctrl+a
             xdotool type --delay 50 "Portable"
