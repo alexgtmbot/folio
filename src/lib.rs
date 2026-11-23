@@ -36,8 +36,11 @@ impl FileFormat {
 
 pub fn block_prefix(line: &str) -> usize {
     let hashes = line.bytes().take_while(|&c| c == b'#').count();
-    if (1..=6).contains(&hashes) && line.as_bytes().get(hashes) == Some(&b' ') {
-        hashes + 1
+    let after_hashes = &line[hashes..];
+    if (1..=6).contains(&hashes)
+        && (after_hashes.is_empty() || after_hashes.starts_with([' ', '\t', '\r', '\n']))
+    {
+        line.len() - after_hashes.trim_start_matches([' ', '\t']).len()
     } else if ["- [ ] ", "- [x] ", "- [X] "]
         .iter()
         .any(|p| line.starts_with(p))
@@ -81,6 +84,9 @@ mod tests {
     fn markdown_and_unicode() {
         for (s, n) in [
             ("# Title", 2),
+            ("##\t  Café", 5),
+            ("###\nNext", 3),
+            ("##", 2),
             ("###### 六", 7),
             ("####### x", 0),
             ("#tag", 0),

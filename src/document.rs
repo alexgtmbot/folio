@@ -784,6 +784,9 @@ mod tests {
 
     #[test]
     fn changing_heading_style_keeps_the_caret_on_the_same_text() {
+        let mut tabbed = "##\t  Café noir".to_owned();
+        assert_eq!(format(&mut tabbed, 9..9, Format::Block("")), 4..4);
+        assert_eq!(tabbed, "Café noir");
         let mut md = "## Café noir".to_owned();
         let caret = format(&mut md, 7..7, Format::Block(""));
         assert_eq!(md, "Café noir");
