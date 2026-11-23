@@ -239,6 +239,65 @@ fn clicked_byte(ui: &egui::Ui, first: usize, pointer: egui::Pos2, source: &str) 
     })
 }
 
+// Lay out single-line text items together so markers and content share one
+// baseline and the same leading as the editable text.
+fn compact_list(source: &str, width: f32, color: Color32, size: f32) -> Option<LayoutJob> {
+    use pulldown_cmark::{Event, Parser, Tag};
+    let source = source.trim_end_matches(['\r', '\n']);
+    let mut events = Parser::new_ext(source, crate::blocks::options()).into_offset_iter();
+    let (Event::Start(Tag::List(ordered)), _) = events.next()? else {
+        return None;
+    };
+    let mut items = 0;
+    for (event, _) in events {
+        match event {
+            Event::Start(Tag::Item) => items += 1,
+            Event::Text(_)
+            | Event::Code(_)
+            | Event::Start(Tag::Emphasis | Tag::Strong | Tag::Strikethrough)
+            | Event::End(_) => {}
+            _ => return None,
+        }
+    }
+    if items != source.lines().count() {
+        return None;
+    }
+    let mut job = layout(source, width, color, false, 0, size);
+    if let Some(mut number) = ordered {
+        // Markdown numbers subsequent items from the first marker, even if
+        // every source line was written as "1.".
+        let lines: Vec<_> = job
+            .text
+            .lines()
+            .map(|s| {
+                let n = s
+                    .trim_start()
+                    .bytes()
+                    .take_while(u8::is_ascii_digit)
+                    .count();
+                let indent = s.len() - s.trim_start().len();
+                let expected = number.to_string();
+                number = number.saturating_add(1);
+                (indent, n, expected)
+            })
+            .collect();
+        let mut start = 0;
+        for (indent, n, expected) in lines {
+            // Preserve character indices for click mapping. Wider synthesized
+            // numbers are handled by the general CommonMark renderer.
+            if n != expected.len() {
+                return None;
+            }
+            job.text
+                .replace_range(start + indent..start + indent + n, &expected);
+            start += job.text[start..]
+                .find('\n')
+                .map_or(job.text.len() - start, |i| i + 1);
+        }
+    }
+    Some(job)
+}
+
 pub fn editable_block(
     ui: &mut egui::Ui,
     cache: &mut egui_commonmark::CommonMarkCache,
@@ -258,6 +317,21 @@ pub fn editable_block(
         ui.ctx()
             .graphics(|g| g.get(ui.layer_id()).map_or(0, |list| list.next_idx().0))
     });
+    let block = &text[r.clone()];
+    if let Some(job) = compact_list(block, ui.available_width(), ui.visuals().text_color(), size) {
+        let galley = ui.fonts(|f| f.layout_job(job));
+        let (rect, response) = ui.allocate_exact_size(galley.size(), egui::Sense::click());
+        ui.painter()
+            .galley(rect.min, galley.clone(), ui.visuals().text_color());
+        ui.add_space(size * 0.35);
+        if response.clicked()
+            && let Some(pos) = response.interact_pointer_pos()
+        {
+            let cursor = galley.cursor_from_pos(pos - rect.min).ccursor.index;
+            return BlockAction::Edit(r.start + crate::document::byte_at(block, cursor));
+        }
+        return BlockAction::None;
+    }
     let source = crate::blocks::with_references(text, r, definitions);
     let response = ui.push_id(r.start, |ui| {
         let task = render(ui, cache, &source, base, size, true);
@@ -353,7 +427,10 @@ pub fn layout(
                     c
                 } else if bullet && i == indent {
                     '•'
-                } else if bullet && i == indent + 1 {
+                } else if c == ' '
+                    && line_start
+                    && (bullet || trimmed.as_bytes().first().is_some_and(u8::is_ascii_digit))
+                {
                     ' '
                 } else if line_start && (c.is_ascii_digit() || matches!(c, '.' | ')' | '>')) {
                     c
@@ -512,6 +589,28 @@ mod tests {
             differences.is_empty(),
             "HTML differences in examples {differences:?}"
         );
+    }
+    #[test]
+    fn compact_list_markers_share_the_text_baseline_and_row_spacing() {
+        let ctx = egui::Context::default();
+        let _ = ctx.run(Default::default(), |ctx| {
+            let measure = |source| {
+                let galley = ctx.fonts(|f| {
+                    f.layout_job(compact_list(source, 400., Color32::WHITE, 17.).unwrap())
+                });
+                assert_eq!(galley.rows.len(), 3);
+                galley
+                    .rows
+                    .iter()
+                    .map(|row| row.rect.height())
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(
+                measure("- Howdy\n- Howdy\n- Howdy\n\n"),
+                measure("1. Test\n1. test\n1. test\n\n")
+            );
+            assert!(compact_list("- [ ] interactive", 400., Color32::WHITE, 17.).is_none());
+        });
     }
     #[test]
     fn list_continuations_keep_their_lines() {

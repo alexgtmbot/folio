@@ -619,6 +619,16 @@ impl Editor {
                     .partition_point(|r| r.end <= end)
                     .min(ranges.len() - 1);
                 let active = ranges[first].start..ranges[last].end;
+                let mut editable = active.clone();
+                if visual && last + 1 < ranges.len() {
+                    let body_end = active.start
+                        + tab.doc.text[active.clone()]
+                            .trim_end_matches(['\r', '\n'])
+                            .len();
+                    if byte_at(&tab.doc.text, selection.end) <= body_end {
+                        editable.end = body_end;
+                    }
+                }
                 let offset = tab.doc.text[..active.start].chars().count();
                 let id = document_id.with((visual, active.start));
                 let definitions: Vec<_> = if visual {
@@ -823,7 +833,7 @@ impl Editor {
                                     let next = tab.selection.start - 1;
                                     self.jump = Some(next..next);
                                 } else if last + 1 < ranges.len()
-                                    && here >= active.end.saturating_sub(1)
+                                    && here >= editable.end.min(active.end.saturating_sub(1))
                                     && ui.input_mut(|i| {
                                         i.consume_key(Modifiers::NONE, Key::ArrowRight)
                                     })
@@ -921,7 +931,7 @@ impl Editor {
                                 } else {
                                     None
                                 };
-                            let mut contents = tab.doc.text[active.clone()].to_owned();
+                            let mut contents = tab.doc.text[editable.clone()].to_owned();
                             let output = TextEdit::multiline(&mut contents)
                                 .id(id)
                                 .frame(false)
@@ -958,9 +968,9 @@ impl Editor {
                                     ctx.request_repaint();
                                 }
                             }
-                            let delta = contents.len() as isize - active.len() as isize;
+                            let delta = contents.len() as isize - editable.len() as isize;
                             if output.response.changed() {
-                                tab.doc.text.replace_range(active.clone(), &contents);
+                                tab.doc.text.replace_range(editable.clone(), &contents);
                             }
                             for old in &ranges[last + 1..] {
                                 let r = old.start.saturating_add_signed(delta)
