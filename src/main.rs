@@ -449,6 +449,17 @@ impl Editor {
                             .filter(|c| c.name.to_lowercase().contains(&query))
                             .collect();
                         if !matches.is_empty() {
+                            ui.memory_mut(|m| {
+                                m.set_focus_lock_filter(
+                                    id,
+                                    egui::EventFilter {
+                                        escape: true,
+                                        tab: true,
+                                        horizontal_arrows: true,
+                                        vertical_arrows: true,
+                                    },
+                                )
+                            });
                             tab.slash_index = tab.slash_index.min(matches.len() - 1);
                             let caret = output.galley.from_ccursor(CCursor::new(tab.selection.end));
                             let rect = output
