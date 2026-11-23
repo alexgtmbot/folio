@@ -23,7 +23,7 @@ jobs:
       - run: rustup update stable --no-self-update
       - run: rustup default stable
       - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-0 libwayland-dev libgl1-mesa-dev libx11-dev libxcb1-dev libxcursor1 libxi6 libxrandr2 xvfb xdotool
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-0 libwayland-dev libgl1-mesa-dev libx11-dev libxcb1-dev libxcursor1 libxi6 libxrandr2 xvfb xdotool xclip
       - run: cargo fmt --check
       - run: cargo test --locked
       - run: cargo build --release --locked
@@ -42,12 +42,26 @@ jobs:
             xdotool key ctrl+a
             xdotool type --delay 50 "Portable"
             xdotool key ctrl+1 ctrl+s
+            wait_for_save() {
+              for attempt in {1..30}; do
+                if [[ $(cat "$RUNNER_TEMP/Window check.md") == "$1" ]]; then return 0; fi
+                sleep 0.2
+              done
+              cat "$RUNNER_TEMP/Window check.md" >&2
+              return 1
+            }
+            wait_for_save "# Portable"
+            xdotool key ctrl+a
+            xclip -selection clipboard -t image/png -i screenshots/table.png
+            xdotool key ctrl+v
+            image="$RUNNER_TEMP/Window check.assets/Pasted image.png"
             for attempt in {1..30}; do
-              if [[ $(cat "$RUNNER_TEMP/Window check.md") == "# Portable" ]]; then exit 0; fi
+              [[ -s "$image" ]] && break
               sleep 0.2
             done
-            cat "$RUNNER_TEMP/Window check.md" >&2
-            exit 1
+            test -s "$image"
+            xdotool key ctrl+s
+            wait_for_save "![Pasted image](Window%20check.assets/Pasted%20image.png)"
           '
       - if: runner.os == 'macOS'
         run: ./package.sh
