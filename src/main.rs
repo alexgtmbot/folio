@@ -27,6 +27,35 @@ struct Tab {
     edited: Option<Instant>,
     edit_block: bool,
 }
+impl Tab {
+    fn rendered_block(
+        &mut self,
+        ui: &mut egui::Ui,
+        cache: &mut egui_commonmark::CommonMarkCache,
+        r: &Range<usize>,
+        definitions: &[Range<usize>],
+        size: f32,
+    ) -> Option<Range<usize>> {
+        let base = self.doc.path.as_deref().and_then(|p| p.parent());
+        match window::editable_block(ui, cache, &self.doc.text, r, definitions, base, size) {
+            window::BlockAction::Edit => {
+                let pos = self.doc.text[..r.start].chars().count()
+                    + folio::block_prefix(&self.doc.text[r.clone()]);
+                ui.ctx().request_repaint();
+                Some(pos..pos)
+            }
+            window::BlockAction::Task(byte, checked) => {
+                self.doc
+                    .text
+                    .replace_range(byte..byte + 1, if checked { "x" } else { " " });
+                self.doc.dirty = true;
+                self.edited = Some(Instant::now());
+                None
+            }
+            window::BlockAction::None => None,
+        }
+    }
+}
 #[derive(Clone, Copy)]
 enum Closing {
     Tab,
@@ -513,22 +542,16 @@ impl Editor {
                     |ui| {
                         egui::ScrollArea::vertical().id_salt(tab.id).show(ui, |ui| {
                             ui.add_space(14.);
-                            let base = tab.doc.path.as_deref().and_then(|p| p.parent());
                             if visual && !tab.edit_block {
                                 for r in &ranges {
-                                    if window::editable_block(
+                                    if let Some(selection) = tab.rendered_block(
                                         ui,
                                         &mut self.preview_cache,
-                                        &tab.doc.text,
                                         r,
                                         &definitions,
-                                        base,
                                         self.text_size,
                                     ) {
-                                        let pos = tab.doc.text[..r.start].chars().count()
-                                            + folio::block_prefix(&tab.doc.text[r.clone()]);
-                                        self.jump = Some(pos..pos);
-                                        ctx.request_repaint();
+                                        self.jump = Some(selection);
                                     }
                                 }
                                 if ui
@@ -544,19 +567,14 @@ impl Editor {
                                 return;
                             }
                             for r in &ranges[..first] {
-                                if window::editable_block(
+                                if let Some(selection) = tab.rendered_block(
                                     ui,
                                     &mut self.preview_cache,
-                                    &tab.doc.text,
                                     r,
                                     &definitions,
-                                    base,
                                     self.text_size,
                                 ) {
-                                    let pos = tab.doc.text[..r.start].chars().count()
-                                        + folio::block_prefix(&tab.doc.text[r.clone()]);
-                                    self.jump = Some(pos..pos);
-                                    ctx.request_repaint();
+                                    self.jump = Some(selection);
                                 }
                             }
                             if visual {
@@ -618,18 +636,14 @@ impl Editor {
                                                 }
                                             })
                                             .collect::<Vec<_>>();
-                                        if window::editable_block(
+                                        if let Some(selection) = tab.rendered_block(
                                             ui,
                                             &mut self.preview_cache,
-                                            &tab.doc.text,
                                             &r,
                                             &refs,
-                                            base,
                                             self.text_size,
                                         ) {
-                                            let pos = tab.doc.text[..r.start].chars().count()
-                                                + folio::block_prefix(&tab.doc.text[r.clone()]);
-                                            self.jump = Some(pos..pos);
+                                            self.jump = Some(selection);
                                         }
                                     }
                                     return;
@@ -776,19 +790,14 @@ impl Editor {
                                         }
                                     })
                                     .collect();
-                                if window::editable_block(
+                                if let Some(selection) = tab.rendered_block(
                                     ui,
                                     &mut self.preview_cache,
-                                    &tab.doc.text,
                                     &r,
                                     &refs,
-                                    base,
                                     self.text_size,
                                 ) {
-                                    let pos = tab.doc.text[..r.start].chars().count()
-                                        + folio::block_prefix(&tab.doc.text[r.clone()]);
-                                    self.jump = Some(pos..pos);
-                                    ctx.request_repaint();
+                                    self.jump = Some(selection);
                                 }
                             }
                             if let Some(cursor) = output.cursor_range {

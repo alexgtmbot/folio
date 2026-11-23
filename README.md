@@ -29,7 +29,7 @@ From this checkout, run `cargo run --release --locked`. To open an existing docu
 
 Open local files through **File → Open** or drag them into the window. Each document has its own tab. **Write** opens a single writing canvas. Choose **Split** for a live CommonMark preview, **Source** for literal Markdown, or **Outline** to navigate headings. The preview renders nested lists, tables, task lists, fenced code, blockquotes, links, local images, strikethrough, footnotes, and definition lists. Raw HTML is displayed as text. The outline jumps to headings, and Find selects the next occurrence.
 
-Choose **Format → Heading 1** and type, or start a line with `# `. Write draws the heading in place. Select words and choose **Bold**, or type paired emphasis markers. **Style** controls appearance, text size, and page width. These preferences stay outside the document.
+Choose **Format → Heading 1** and type, or start a line with `# `. Write draws the heading in place. Select words and choose **Bold**, or type paired emphasis markers. **Style** controls appearance, text size, and page width. These preferences stay outside the document. Click a rendered task checkbox to update its Markdown checkmark.
 
 Choose **Format → Insert table** or type `/table` and press Enter. Click a table to edit its cells, use Tab to move between fields, and choose **+ Row** or **+ Column** to expand it. A typed or pasted GitHub-style pipe table opens the same grid. Source shows the saved pipe syntax. Escape returns to the rendered table. [See the table editor](screenshots/table.png).
 

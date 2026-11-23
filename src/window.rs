@@ -26,6 +26,17 @@ pub fn preview(
     base: Option<&std::path::Path>,
     size: f32,
 ) {
+    render(ui, cache, text, base, size, false);
+}
+
+fn render(
+    ui: &mut egui::Ui,
+    cache: &mut egui_commonmark::CommonMarkCache,
+    text: &str,
+    base: Option<&std::path::Path>,
+    size: f32,
+    interactive: bool,
+) -> Option<(usize, bool)> {
     let mut viewer = egui_commonmark::CommonMarkViewer::new()
         .max_image_width(Some(ui.available_width().max(1.) as usize));
     if let Some(base) = base {
@@ -45,10 +56,37 @@ pub fn preview(
             .insert(egui::TextStyle::Monospace, FontId::monospace(size * 0.9));
         style.spacing.item_spacing.y = 6.;
         ui.add_space(8.);
-        viewer.show(ui, cache, &preview_text(text));
-    });
+        let display = preview_text(text);
+        if interactive && text.contains('[') {
+            let mut edited = display.to_string();
+            viewer.show_mut(ui, cache, &mut edited);
+            if edited != display {
+                let difference = edited
+                    .bytes()
+                    .zip(display.bytes())
+                    .position(|(a, b)| a != b)?;
+                return tasks(&display)
+                    .position(|r| r.contains(&difference))
+                    .map(|index| (index, edited.as_bytes()[difference] != b' '));
+            }
+        } else {
+            viewer.show(ui, cache, &display);
+        }
+        None
+    })
+    .inner
 }
 
+fn tasks(text: &str) -> impl Iterator<Item = std::ops::Range<usize>> + '_ {
+    pulldown_cmark::Parser::new_ext(text, crate::blocks::options())
+        .into_offset_iter()
+        .filter_map(|(e, r)| matches!(e, pulldown_cmark::Event::TaskListMarker(_)).then_some(r))
+}
+pub enum BlockAction {
+    Edit,
+    Task(usize, bool),
+    None,
+}
 pub fn editable_block(
     ui: &mut egui::Ui,
     cache: &mut egui_commonmark::CommonMarkCache,
@@ -57,21 +95,29 @@ pub fn editable_block(
     definitions: &[std::ops::Range<usize>],
     base: Option<&std::path::Path>,
     size: f32,
-) -> bool {
+) -> BlockAction {
     let source = crate::blocks::with_references(text, r, definitions);
-    let response = ui
-        .push_id(r.start, |ui| {
-            preview(ui, cache, &source, base, size);
-            ui.add_space(5.);
-        })
-        .response;
-    let rect = response.rect;
-    ui.input(|i| {
+    let response = ui.push_id(r.start, |ui| {
+        let task = render(ui, cache, &source, base, size, true);
+        ui.add_space(5.);
+        task
+    });
+    if let Some((index, checked)) = response.inner
+        && let Some(marker) = tasks(&text[r.clone()]).nth(index)
+    {
+        return BlockAction::Task(r.start + marker.start + 1, checked);
+    }
+    let rect = response.response.rect;
+    if ui.input(|i| {
         i.pointer.primary_clicked()
             && i.pointer
                 .interact_pos()
                 .is_some_and(|p| rect.contains(p) && ui.clip_rect().contains(p))
-    })
+    }) {
+        BlockAction::Edit
+    } else {
+        BlockAction::None
+    }
 }
 
 pub fn outline(text: &str) -> Vec<(usize, String)> {
@@ -278,6 +324,51 @@ mod tests {
             "- Tell me about your day  \ntest  \ntest\n- next\n\n```\na\nb\n```"
         );
     }
+    #[test]
+    fn clicking_rendered_task_after_soft_break_targets_original_byte() {
+        let source = "# Intro\n\n- é [literal]\n  wrapped\n- [X] walk\n";
+        let block = crate::blocks::ranges(source).into_iter().last().unwrap();
+        let ctx = egui::Context::default();
+        let mut cache = Default::default();
+        let mut toggled = None;
+        let mut frame = |events| {
+            let _ = ctx.run(
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        if let BlockAction::Task(byte, value) =
+                            editable_block(ui, &mut cache, source, &block, &[], None, 17.)
+                        {
+                            toggled = Some((byte, value));
+                        }
+                    });
+                },
+            );
+        };
+        frame(vec![]);
+        // Exercise the rendered hit target across font and platform metrics.
+        for y in (35..130).step_by(6) {
+            for x in (12..68).step_by(6) {
+                let pos = egui::pos2(x as f32, y as f32);
+                for pressed in [true, false] {
+                    frame(vec![
+                        egui::Event::PointerMoved(pos),
+                        egui::Event::PointerButton {
+                            pos,
+                            button: egui::PointerButton::Primary,
+                            pressed,
+                            modifiers: Default::default(),
+                        },
+                    ]);
+                }
+            }
+        }
+        assert_eq!(toggled, Some((source.find("[X]").unwrap() + 1, false)));
+    }
+
     #[test]
     fn typed_heading_and_emphasis_hide_delimiters_in_write() {
         let source = "# My **notes**";
