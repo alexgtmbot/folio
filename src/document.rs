@@ -243,7 +243,7 @@ pub fn format(text: &mut String, selection: Range<usize>, cmd: Format) -> Range<
             text.insert_str(start, mark);
             selection.start + mark.len()..selection.end + mark.len()
         }
-        Format::Block(prefix @ ("- " | "1. ")) => {
+        Format::Block(prefix @ ("- " | "1. " | "> ")) => {
             let first = text[..start].rfind('\n').map_or(0, |i| i + 1);
             let last = if end > start && text[..end].ends_with('\n') {
                 end - 1
@@ -257,6 +257,18 @@ pub fn format(text: &mut String, selection: Range<usize>, cmd: Format) -> Range<
             for (line_number, line) in text[first..stop].split('\n').enumerate() {
                 if line_number > 0 {
                     output.push('\n');
+                }
+                if prefix == "> " {
+                    output.push_str(if line.is_empty() && !selection.is_empty() {
+                        ">"
+                    } else {
+                        "> "
+                    });
+                    if selection.is_empty() {
+                        first_caret = 2 + text[first..start].chars().count();
+                    }
+                    output.push_str(line);
+                    continue;
                 }
                 if !selection.is_empty() && line.trim().is_empty() {
                     output.push_str(line);
@@ -284,6 +296,15 @@ pub fn format(text: &mut String, selection: Range<usize>, cmd: Format) -> Range<
             }
             let offset = text[..first].chars().count();
             let finish = offset + output.chars().count();
+            if prefix == "> "
+                && text[stop..]
+                    .lines()
+                    .nth(1)
+                    .is_some_and(|line| !line.trim().is_empty())
+            {
+                // A following plain line would otherwise continue the final quoted paragraph.
+                output.push('\n');
+            }
             text.replace_range(first..stop, &output);
             if selection.is_empty() {
                 let pos = offset + first_caret;
@@ -640,6 +661,21 @@ mod tests {
         let mut md = "Title\n=====\n".to_owned();
         assert_eq!(format(&mut md, 7..7, Format::Block("")), 5..5);
         assert_eq!(md, "Title\n");
+    }
+
+    #[test]
+    fn quote_wraps_selected_blocks_and_preserves_their_markdown() {
+        let mut text = "before\n# Café\n\n- one\n- two\nafter".to_owned();
+        let end = text[..text.find("after").unwrap()].chars().count();
+        let selected = format(&mut text, 7..end, Format::Block("> "));
+        assert_eq!(text, "before\n> # Café\n>\n> - one\n> - two\n\nafter");
+        assert_eq!(
+            &text[byte_at(&text, selected.start)..byte_at(&text, selected.end)],
+            "> # Café\n>\n> - one\n> - two"
+        );
+        let mut text = "écho".to_owned();
+        assert_eq!(format(&mut text, 2..2, Format::Block("> ")), 4..4);
+        assert_eq!(text, "> écho");
     }
 
     #[test]
