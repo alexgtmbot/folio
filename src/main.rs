@@ -462,6 +462,37 @@ impl Editor {
                                     });
                                 }
                             }
+                            if has_focus
+                                && !tab.source
+                                && !choose
+                                && tab.selection.is_empty()
+                                && ui.input(|i| {
+                                    i.key_pressed(Key::Enter) && i.modifiers == Modifiers::NONE
+                                })
+                                && let Some((range, insert)) =
+                                    document::list_enter(&tab.doc.text, tab.selection.end)
+                                && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter))
+                            {
+                                let mut state = TextEdit::load_state(ctx, id).unwrap_or_default();
+                                state.cursor.set_char_range(Some(CCursorRange::two(
+                                    CCursor::new(range.start),
+                                    CCursor::new(range.end),
+                                )));
+                                state.store(ctx, id);
+                                ui.input_mut(|i| {
+                                    i.events.push(if insert.is_empty() {
+                                        egui::Event::Key {
+                                            key: Key::Backspace,
+                                            physical_key: None,
+                                            pressed: true,
+                                            repeat: false,
+                                            modifiers: Modifiers::NONE,
+                                        }
+                                    } else {
+                                        egui::Event::Text(insert)
+                                    })
+                                });
+                            }
                             let output = TextEdit::multiline(&mut tab.doc.text)
                                 .id(id)
                                 .frame(false)

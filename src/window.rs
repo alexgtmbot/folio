@@ -1,6 +1,25 @@
 use eframe::egui::{self, Color32, FontId, TextFormat, text::LayoutJob};
 use folio::{Fence, block_prefix, inline};
 
+// CommonMark permits displaying soft breaks as line breaks. Keep the editor's line layout in preview.
+fn preview_text(text: &str) -> std::borrow::Cow<'_, str> {
+    use pulldown_cmark::{Event, Options, Parser};
+    let mut out = String::new();
+    let mut start = 0;
+    for (event, r) in Parser::new_ext(text, Options::all()).into_offset_iter() {
+        if event == Event::SoftBreak {
+            out.push_str(&text[start..r.start]);
+            out.push_str("  ");
+            start = r.start;
+        }
+    }
+    if out.is_empty() {
+        return text.into();
+    }
+    out.push_str(&text[start..]);
+    out.into()
+}
+
 pub fn preview(
     ui: &mut egui::Ui,
     cache: &mut egui_commonmark::CommonMarkCache,
@@ -26,7 +45,7 @@ pub fn preview(
             .insert(egui::TextStyle::Monospace, FontId::monospace(15.));
         style.spacing.item_spacing.y = 6.;
         ui.add_space(8.);
-        viewer.show(ui, cache, text);
+        viewer.show(ui, cache, &preview_text(text));
     });
 }
 
@@ -94,7 +113,10 @@ pub fn layout(text: &str, width: f32, color: Color32, source: bool, caret: usize
         let heading = prefix > 0 && line.starts_with('#');
         let face = if heading {
             TextFormat {
-                font_id: FontId::proportional(34. - (prefix - 2) as f32 * 3.),
+                font_id: FontId::new(
+                    32. - (prefix - 2) as f32 * 3.,
+                    egui::FontFamily::Name("Bold".into()),
+                ),
                 ..body.clone()
             }
         } else {
@@ -139,6 +161,14 @@ pub fn layout(text: &str, width: f32, color: Color32, source: bool, caret: usize
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn list_continuations_keep_their_lines() {
+        let source = "- Tell me about your day\ntest\ntest\n- next\n\n```\na\nb\n```";
+        assert_eq!(
+            preview_text(source),
+            "- Tell me about your day  \ntest  \ntest\n- next\n\n```\na\nb\n```"
+        );
+    }
     #[test]
     fn layout_preserves_cursor_positions() {
         let text = "# 🦀\n**été**\n```\n# code\n```\n";

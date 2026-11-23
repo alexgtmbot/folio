@@ -102,9 +102,64 @@ pub fn format(text: &mut String, selection: Range<usize>, cmd: Format) -> Range<
     }
 }
 
+/// Return the character selection and replacement for Enter on a Markdown list line.
+pub fn list_enter(text: &str, caret: usize) -> Option<(Range<usize>, String)> {
+    use pulldown_cmark::{Event, Parser, Tag};
+    let end = byte_at(text, caret);
+    let start = text[..end].rfind('\n').map_or(0, |i| i + 1);
+    let before = &text[start..end];
+    let body = before.trim_start_matches([' ', '\t']);
+    let indent = &before[..before.len() - body.len()];
+    let (marker, content) = body.split_once(' ')?;
+    let next = match marker {
+        "-" | "+" | "*" => marker.to_owned(),
+        _ => {
+            let digits = marker.strip_suffix(['.', ')'])?;
+            if digits.is_empty() || digits.len() > 9 || !digits.bytes().all(|b| b.is_ascii_digit())
+            {
+                return None;
+            }
+            format!(
+                "{}{}",
+                digits.parse::<u32>().ok()?.checked_add(1)?,
+                &marker[digits.len()..]
+            )
+        }
+    };
+    if !Parser::new(text).into_offset_iter().any(|(e, r)| {
+        matches!(e, Event::Start(Tag::Item)) && (start..=start + indent.len()).contains(&r.start)
+    }) {
+        return None;
+    }
+    let task =
+        content.starts_with("[ ] ") || content.starts_with("[x] ") || content.starts_with("[X] ");
+    let empty = if task { &content[4..] } else { content };
+    if empty.trim().is_empty() && text[end..].split('\n').next()?.trim().is_empty() {
+        return Some((caret - before.chars().count()..caret, String::new()));
+    }
+    Some((
+        caret..caret,
+        format!("\n{indent}{next} {}", if task { "[ ] " } else { "" }),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn enter_handles_list_types_and_exits_empty_items() {
+        for (line, next) in [
+            ("- Hello", "\n- "),
+            ("2. Yo", "\n3. "),
+            ("- [x] café", "\n- [ ] "),
+            ("- parent\n  * child", "\n  * "),
+        ] {
+            let n = line.chars().count();
+            assert_eq!(list_enter(line, n), Some((n..n, next.into())));
+        }
+        assert_eq!(list_enter("- ", 2), Some((0..2, String::new())));
+        assert_eq!(list_enter("```\n- literal", 13), None);
+    }
     #[test]
     fn edit_save_and_conflict() {
         let dir = tempfile::tempdir().unwrap();
