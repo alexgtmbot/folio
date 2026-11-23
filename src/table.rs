@@ -98,6 +98,18 @@ impl Table {
             text.replace_range(self.start..self.end, "");
             return;
         }
+        if matches!(action, TableAction::RowBefore | TableAction::RowAfter) {
+            let table = &text[self.start..self.end];
+            let after = row + usize::from(row == 0 || matches!(action, TableAction::RowAfter));
+            let newline = if table.contains("\r\n") { "\r\n" } else { "\n" };
+            let blank = format!("|{}", "  |".repeat(self.rows[0].len()));
+            if let Some((offset, _)) = table.match_indices('\n').nth(after) {
+                text.insert_str(self.start + offset + 1, &format!("{blank}{newline}"));
+            } else {
+                text.insert_str(self.end, &format!("{newline}{blank}"));
+            }
+            return;
+        }
         if matches!(action, TableAction::RemoveRow) {
             if row > 0 {
                 let table = &text[self.start..self.end];
@@ -162,16 +174,7 @@ impl Table {
             })
             .collect();
         let cols = self.rows[0].len();
-        let index = if row == 0 { 0 } else { row + 1 };
         match action {
-            TableAction::RowBefore | TableAction::RowAfter => {
-                let at = if row == 0 {
-                    2
-                } else {
-                    index + usize::from(matches!(action, TableAction::RowAfter))
-                };
-                rows.insert(at, vec![String::new(); cols]);
-            }
             TableAction::ColumnLeft | TableAction::ColumnRight => {
                 let at = col + usize::from(matches!(action, TableAction::ColumnRight));
                 for (i, line) in rows.iter_mut().enumerate() {
@@ -633,6 +636,33 @@ pub fn edit(
 mod tests {
     use super::*;
     #[test]
+    fn inserting_rows_preserves_hand_formatted_markdown() {
+        for nl in ["\n", "\r\n"] {
+            let lines = [
+                "A | B",
+                "----- | :---:",
+                "  café | x\\|y",
+                "last  |  item",
+                "",
+            ];
+            for (row, action, at) in [
+                (0, TableAction::RowAfter, 2),
+                (2, TableAction::RowBefore, 3),
+                (2, TableAction::RowAfter, 4),
+            ] {
+                let mut text = lines.join(nl);
+                Table::parse(&text)
+                    .unwrap()
+                    .change(&mut text, row, 0, action);
+                let mut expected = lines.to_vec();
+                expected.insert(at, "|  |  |");
+                assert_eq!(text, expected.join(nl));
+                assert_eq!(Table::parse(&text).unwrap().rows.len(), 4);
+            }
+        }
+    }
+
+    #[test]
     fn removing_a_row_preserves_surviving_source_and_trailing_newline() {
         for newline in ["\n", "\r\n"] {
             let lines = [
@@ -805,7 +835,7 @@ mod tests {
         Table::parse(&md)
             .unwrap()
             .change(&mut md, 1, 0, TableAction::RowAfter);
-        assert!(md.contains("| \u{a0} | \u{2003}Paris\u{202f} |"));
+        assert!(md.contains("|\u{a0}|\u{2003}Paris\u{202f}|"));
     }
 
     #[test]
