@@ -256,6 +256,14 @@ pub fn format(text: &mut String, selection: Range<usize>, cmd: Format) -> Range<
             if selection.is_empty()
                 && text[..start].ends_with(mark)
                 && text[end..].starts_with(mark)
+                && (mark != "*"
+                    || text[..start]
+                        .bytes()
+                        .rev()
+                        .take_while(|&b| b == b'*')
+                        .count()
+                        % 2
+                        == 1)
             {
                 text.replace_range(end..end + mark.len(), "");
                 text.replace_range(start - mark.len()..start, "");
@@ -724,6 +732,18 @@ pub fn block_enter(text: &str, caret: usize) -> Option<(Range<usize>, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn italic_shortcut_inside_pending_bold_keeps_both_styles() {
+        let mut text = String::new();
+        let bold = format(&mut text, 0..0, Format::Wrap("**"));
+        let both = format(&mut text, bold, Format::Wrap("*"));
+        assert_eq!(text, "******");
+        assert_eq!(both, 3..3);
+        let bold = format(&mut text, both, Format::Wrap("*"));
+        assert_eq!(text, "****");
+        assert_eq!(bold, 2..2);
+    }
+
     #[test]
     fn enter_after_top_level_prose_starts_a_markdown_paragraph() {
         let text = "Notes\n\nCafé **today**";
