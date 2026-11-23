@@ -369,7 +369,19 @@ fn cell_galley(
     size: f32,
     header: bool,
 ) -> std::sync::Arc<egui::Galley> {
-    let mut job = crate::window::layout(text, width, ui.visuals().text_color(), false, 0, size);
+    // GFM cells contain inline markup. Force paragraph context for the shared renderer.
+    let prefix = "x ";
+    let paragraph = format!("{prefix}{text}");
+    let mut job =
+        crate::window::layout(&paragraph, width, ui.visuals().text_color(), false, 0, size);
+    let displayed_prefix = crate::document::byte_at(&job.text, prefix.len());
+    job.text.drain(..displayed_prefix);
+    job.sections.retain_mut(|section| {
+        let range = &mut section.byte_range;
+        *range = range.start.saturating_sub(displayed_prefix)
+            ..range.end.saturating_sub(displayed_prefix);
+        range.start < range.end
+    });
     if header {
         for section in &mut job.sections {
             if section.format.font_id.family == egui::FontFamily::Proportional {
@@ -948,6 +960,26 @@ mod tests {
         }
         assert_eq!(text, "| A | nextB |\n| --- | --- |\n| first | last |");
     }
+    #[test]
+    fn table_cells_render_inline_markdown_without_block_syntax() {
+        let ctx = egui::Context::default();
+        crate::configure_fonts(&ctx);
+        let _ = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                for (source, visible) in [
+                    ("# **Café**", "# Café"),
+                    ("- item", "- item"),
+                    ("---", "---"),
+                    ("> quote", "> quote"),
+                ] {
+                    let galley = cell_galley(ui, source, 300., 17., false);
+                    assert_eq!(galley.text().replace('\u{200b}', ""), visible);
+                    assert_eq!(galley.text().chars().count(), source.chars().count());
+                }
+            });
+        });
+    }
+
     #[test]
     fn header_text_is_bold_and_inline_code_keeps_its_typeface() {
         let ctx = egui::Context::default();
