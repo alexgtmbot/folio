@@ -45,7 +45,7 @@ In **Write**, press Enter between words in an ordinary paragraph to split it int
 
 To build a list visually, choose **• List**, type an item, and press Enter for the next one. Tab nests the current item under its previous sibling. Shift+Tab brings it back one level. Enter on an empty nested item continues the parent list. Enter on an empty top-level item ends the list.
 
-Choose **Table**, or type `/table` and press Enter. Click a cell to edit it. Tab moves forward and Shift+Tab moves backward across row boundaries. Tab from the last cell adds a row. Right-click a cell to insert or remove rows and columns or change column alignment. Press Escape to return to the rendered table, or ⌘Enter (Ctrl+Enter on Windows and Linux) to write below it. You can also paste a GitHub-style pipe table and edit it in the same grid. [See the table editor](screenshots/table.png).
+Choose **Table**, or type `/table` and press Enter. Click a cell to edit it. Tab moves forward and Shift+Tab moves backward across row boundaries. Tab from the last cell adds a row. Enter moves down in the same column, adding a row at the bottom. Shift+Enter moves up. Right-click a cell to insert or remove rows and columns or change column alignment. Press Escape to return to the rendered table, or ⌘Enter (Ctrl+Enter on Windows and Linux) to write below it. You can also paste a GitHub-style pipe table and edit it in the same grid. [See the table editor](screenshots/table.png).
 
 ### Working with the development build
 

@@ -479,6 +479,17 @@ pub fn edit(
                                 structural = Some((row, col, TableAction::RowAfter));
                             }
                         }
+                    } else if focused
+                        && ui.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, egui::Key::Enter))
+                    {
+                        next_cell = Some((row.saturating_sub(1), col));
+                    } else if focused
+                        && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter))
+                    {
+                        next_cell = Some((row + 1, col));
+                        if row + 1 == table.rows.len() {
+                            structural = Some((row, col, TableAction::RowAfter));
+                        }
                     }
                     let fill = if row == 0 {
                         ui.visuals().faint_bg_color
@@ -738,6 +749,42 @@ mod tests {
         }
         assert_eq!(text, "| A | nextB |\n| --- | --- |\n| first | last |");
     }
+    #[test]
+    fn enter_adds_a_row_and_shift_enter_moves_back_in_the_same_column() {
+        let ctx = egui::Context::default();
+        let mut text = "| A | B |\n| --- | --- |\n| one | two |".to_owned();
+        let start = text.find("two").unwrap();
+        let enter = |modifiers| egui::Event::Key {
+            key: egui::Key::Enter,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
+        };
+        for (focus, events) in [
+            (Some(start..start), vec![]),
+            (None, vec![enter(egui::Modifiers::NONE)]),
+            (None, vec![egui::Event::Text("three".into())]),
+            (None, vec![enter(egui::Modifiers::SHIFT)]),
+            (None, vec![egui::Event::Text("before ".into())]),
+        ] {
+            let _ = ctx.run(
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default()
+                        .show(ctx, |ui| edit(ui, &mut text, focus.clone(), 17.));
+                },
+            );
+        }
+        let table = Table::parse(&text).unwrap();
+        assert_eq!(table.rows.len(), 3);
+        assert_eq!(text[table.rows[2][1].clone()].trim(), "three");
+        assert_eq!(text[table.rows[1][1].clone()].trim(), "before two");
+    }
+
     #[test]
     fn quoted_clipboard_cells_preserve_boundaries() {
         assert_eq!(
