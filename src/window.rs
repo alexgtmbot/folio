@@ -251,7 +251,7 @@ fn styled_prose(source: &str, width: f32, color: Color32, size: f32) -> Option<L
     }
     let mut depth = 0;
     let mut nested = false;
-    let mut strong = false;
+    let mut needs_styled_font = false;
     for event in Parser::new_ext(source, crate::blocks::options()) {
         match event {
             Event::Start(Tag::BlockQuote(None)) => {
@@ -259,7 +259,10 @@ fn styled_prose(source: &str, width: f32, color: Color32, size: f32) -> Option<L
                 nested |= depth > 1;
             }
             Event::End(TagEnd::BlockQuote(_)) => depth -= 1,
-            Event::Start(Tag::Strong) => strong = true,
+            Event::Start(Tag::Heading { .. }) if source.trim_start().starts_with('#') => {
+                needs_styled_font = true
+            }
+            Event::Start(Tag::Strong) => needs_styled_font = true,
             Event::Start(Tag::Paragraph | Tag::Emphasis | Tag::Strikethrough)
             | Event::End(_)
             | Event::Text(_)
@@ -269,7 +272,7 @@ fn styled_prose(source: &str, width: f32, color: Color32, size: f32) -> Option<L
             _ => return None,
         }
     }
-    (nested || (strong && !source.trim_start().starts_with('>')))
+    (nested || (needs_styled_font && !source.trim_start().starts_with('>')))
         .then(|| layout(source, width, color, false, 0, size))
 }
 
@@ -993,6 +996,17 @@ mod tests {
             .collect();
         assert_eq!(offsets, [0., 15., 30., 0.]);
         assert_eq!(job.text.chars().count(), source.chars().count());
+    }
+
+    #[test]
+    fn inactive_atx_headings_keep_the_editing_font_at_every_level() {
+        for level in 1..=6 {
+            let source = format!("{} Café", "#".repeat(level));
+            let inactive = styled_prose(&source, 500., Color32::WHITE, 17.).unwrap();
+            let editing = layout(&source, 500., Color32::WHITE, false, 0, 17.);
+            assert_eq!(inactive, editing);
+            assert_eq!(inactive.text.replace('\u{200b}', ""), "Café");
+        }
     }
 
     #[test]
