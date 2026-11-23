@@ -465,8 +465,8 @@ pub fn nest_item(text: &mut String, caret: usize, lift: bool) -> Option<usize> {
     Some(text[..new_byte].chars().count())
 }
 
-/// Return the character selection and replacement for Enter on a Markdown list line.
-pub fn list_enter(text: &str, caret: usize) -> Option<(Range<usize>, String)> {
+/// Return the character selection and replacement for structural Enter commands.
+pub fn block_enter(text: &str, caret: usize) -> Option<(Range<usize>, String)> {
     use pulldown_cmark::{Event, Parser, Tag};
     let end = byte_at(text, caret);
     let start = text[..end].rfind('\n').map_or(0, |i| i + 1);
@@ -474,6 +474,40 @@ pub fn list_enter(text: &str, caret: usize) -> Option<(Range<usize>, String)> {
     let body = before.trim_start_matches([' ', '\t']);
     let indent = &before[..before.len() - body.len()];
     let rest_of_line = text[end..].split('\n').next()?;
+    if body.starts_with('>') {
+        let mut prefix_end = indent.len();
+        let mut last_marker = prefix_end;
+        while before[prefix_end..].starts_with('>') {
+            last_marker = prefix_end;
+            prefix_end += 1;
+            if before[prefix_end..].starts_with([' ', '\t']) {
+                prefix_end += 1;
+            }
+        }
+        let mut quote_start = None;
+        for (event, span) in Parser::new_ext(text, crate::blocks::options()).into_offset_iter() {
+            if !span.contains(&(start + last_marker)) {
+                continue;
+            }
+            match event {
+                Event::Start(Tag::BlockQuote(_)) => quote_start = Some(span.start),
+                Event::Start(Tag::CodeBlock(_)) => return None,
+                _ => {}
+            }
+        }
+        let quote_start = quote_start?;
+        if before[prefix_end..].trim().is_empty() && rest_of_line.trim().is_empty() {
+            let line_start = caret - before.chars().count();
+            let parent = &before[..last_marker];
+            let separator = if quote_start < start {
+                format!("\n{parent}")
+            } else {
+                String::new()
+            };
+            return Some((line_start + last_marker..caret, separator));
+        }
+        return Some((caret..caret, format!("\n{}", &before[..prefix_end])));
+    }
     let (marker, content) = match body.split_once(' ') {
         Some(parts) => parts,
         None if rest_of_line.trim().is_empty() => (body, ""),
@@ -589,7 +623,7 @@ mod tests {
         ] {
             let caret = source.chars().count();
             assert_eq!(
-                list_enter(source, caret),
+                block_enter(source, caret),
                 Some((caret - child.len()..caret, sibling.into()))
             );
         }
@@ -599,17 +633,17 @@ mod tests {
     fn enter_exits_empty_markers_after_trailing_spaces_are_stripped() {
         for marker in ["-", "+", "*", "3.", "3)", "- [ ]", "- [X]"] {
             assert_eq!(
-                list_enter(marker, marker.len()),
+                block_enter(marker, marker.len()),
                 Some((0..marker.len(), String::new()))
             );
         }
         let nested = "- Parent\n\n  -";
         assert_eq!(
-            list_enter(nested, nested.len()),
+            block_enter(nested, nested.len()),
             Some((nested.len() - 3..nested.len(), "- ".into()))
         );
-        assert_eq!(list_enter("Title\n-", 7), None);
-        assert_eq!(list_enter("- content", 1), None);
+        assert_eq!(block_enter("Title\n-", 7), None);
+        assert_eq!(block_enter("- content", 1), None);
     }
 
     #[test]
@@ -693,6 +727,24 @@ mod tests {
     }
 
     #[test]
+    fn enter_continues_prose_quotes_and_exits_one_level_on_empty_lines() {
+        for (text, expected) in [
+            ("> café", "\n> "),
+            ("> > nested", "\n> > "),
+            (">tight", "\n>"),
+        ] {
+            let n = text.chars().count();
+            assert_eq!(block_enter(text, n), Some((n..n, expected.into())));
+        }
+        assert_eq!(block_enter("> > ", 4), Some((2..4, String::new())));
+        assert_eq!(block_enter("> ", 2), Some((0..2, String::new())));
+        let quote = "> café\n> ";
+        assert_eq!(block_enter(quote, 9), Some((7..9, "\n".into())));
+        let literal = "```\n> literal";
+        assert_eq!(block_enter(literal, literal.len()), None);
+    }
+
+    #[test]
     fn enter_handles_list_types_and_exits_empty_items() {
         for (line, next) in [
             ("- Hello", "\n- "),
@@ -701,10 +753,10 @@ mod tests {
             ("- parent\n  * child", "\n  * "),
         ] {
             let n = line.chars().count();
-            assert_eq!(list_enter(line, n), Some((n..n, next.into())));
+            assert_eq!(block_enter(line, n), Some((n..n, next.into())));
         }
-        assert_eq!(list_enter("- ", 2), Some((0..2, String::new())));
-        assert_eq!(list_enter("```\n- literal", 13), None);
+        assert_eq!(block_enter("- ", 2), Some((0..2, String::new())));
+        assert_eq!(block_enter("```\n- literal", 13), None);
     }
     #[test]
     fn selection_toggles_the_existing_mark_regardless_of_delimiter() {

@@ -1093,7 +1093,7 @@ impl Editor {
                                     i.key_pressed(Key::Enter) && i.modifiers == Modifiers::NONE
                                 })
                                 && let Some((range, insert)) =
-                                    document::list_enter(&tab.doc.text, tab.selection.end)
+                                    document::block_enter(&tab.doc.text, tab.selection.end)
                                 && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter))
                             {
                                 let mut state = TextEdit::load_state(ctx, id).unwrap_or_default();
