@@ -231,9 +231,11 @@ pub fn format(text: &mut String, selection: Range<usize>, cmd: Format) -> Range<
                 Format::Block(p) => (block_prefix(line), p),
                 _ => task_prefix(line),
             };
-            let next = text[..pos].chars().count() + prefix.len();
+            let line_start = text[..pos].chars().count();
+            let remap =
+                |cursor: usize| line_start + prefix.len() + cursor.saturating_sub(line_start + n);
             text.replace_range(pos..pos + n, prefix);
-            next..next
+            remap(selection.start)..remap(selection.end)
         }
     }
 }
@@ -489,6 +491,20 @@ mod tests {
         );
         assert_eq!(list_enter("Title\n-", 7), None);
         assert_eq!(list_enter("- content", 1), None);
+    }
+
+    #[test]
+    fn changing_heading_style_keeps_the_caret_on_the_same_text() {
+        let mut md = "## Café noir".to_owned();
+        let caret = format(&mut md, 7..7, Format::Block(""));
+        assert_eq!(md, "Café noir");
+        assert_eq!(caret, 4..4);
+        let selected = format(&mut md, 5..9, Format::Block("### "));
+        assert_eq!(md, "### Café noir");
+        assert_eq!(
+            &md[byte_at(&md, selected.start)..byte_at(&md, selected.end)],
+            "noir"
+        );
     }
 
     #[test]
