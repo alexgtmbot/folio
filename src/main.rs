@@ -50,15 +50,14 @@ impl Tab {
         let base = self.doc.path.as_deref().and_then(|p| p.parent());
         match window::editable_block(ui, cache, &self.doc.text, r, definitions, base, size) {
             window::BlockAction::DragStart(byte) => {
-                self.drag_anchor = Some(byte);
+                self.drag_anchor = Some(self.doc.text[..byte].chars().count());
                 None
             }
             window::BlockAction::DragEnd(byte) => {
                 let anchor = self.drag_anchor.take()?;
                 ui.ctx().request_repaint();
-                let start = self.doc.text[..anchor.min(byte)].chars().count();
-                let end = self.doc.text[..anchor.max(byte)].chars().count();
-                Some(start..end)
+                let end = self.doc.text[..byte].chars().count();
+                Some(anchor.min(end)..anchor.max(end))
             }
             window::BlockAction::Edit(byte) => {
                 let pos = self.doc.text[..byte].chars().count();
@@ -1143,6 +1142,22 @@ impl Editor {
                                 .desired_rows(if visual { 1 } else { 24 })
                                 .layouter(&mut layouter)
                                 .show(ui);
+                            if visual
+                                && output.response.contains_pointer()
+                                && let Some(pos) = ui.input(|i| {
+                                    i.pointer
+                                        .primary_pressed()
+                                        .then(|| i.pointer.interact_pos())
+                                        .flatten()
+                                })
+                            {
+                                let cursor = output
+                                    .galley
+                                    .cursor_from_pos(pos - output.galley_pos)
+                                    .ccursor
+                                    .index;
+                                tab.drag_anchor = Some(offset + cursor);
+                            }
                             if let Some(up) = vertical
                                 && !output.response.changed()
                             {
@@ -1759,54 +1774,59 @@ mod slash_menu_tests {
     }
 
     #[test]
-    fn dragging_between_rendered_paragraphs_selects_the_source_span() {
-        let ctx = egui::Context::default();
-        configure_fonts(&ctx);
-        let mut app = Editor::with_documents([]);
-        let mut doc = Document::default();
-        doc.text = "café\n\nsecond".into();
-        app.add(doc);
-        let mut frame = eframe::Frame::_new_kittest();
-        let mut run = |events| {
-            ctx.run(
-                egui::RawInput {
-                    events,
-                    ..Default::default()
-                },
-                |ctx| eframe::App::update(&mut app, ctx, &mut frame),
-            )
-        };
-        let output = run(vec![]);
-        let position = |word: &str, n| {
-            output
-                .shapes
-                .iter()
-                .find_map(|entry| {
-                    let egui::Shape::Text(t) = &entry.shape else {
-                        return None;
-                    };
-                    if t.galley.text() != word {
-                        return None;
-                    }
-                    let cursor = t.galley.from_ccursor(CCursor::new(n));
-                    Some(t.pos + t.galley.pos_from_cursor(&cursor).center().to_vec2())
-                })
-                .unwrap()
-        };
-        let start = position("café", 1);
-        let end = position("second", 3);
-        let button = |pos, pressed| egui::Event::PointerButton {
-            pos,
-            button: egui::PointerButton::Primary,
-            pressed,
-            modifiers: Modifiers::NONE,
-        };
-        run(vec![egui::Event::PointerMoved(start), button(start, true)]);
-        run(vec![egui::Event::PointerMoved(end)]);
-        run(vec![button(end, false)]);
-        run(vec![]);
-        run(vec![egui::Event::Text("X".into())]);
-        assert_eq!(app.tabs[app.active].doc.text, "cXond");
+    fn dragging_between_paragraphs_selects_the_source_span() {
+        for active in [false, true] {
+            let ctx = egui::Context::default();
+            configure_fonts(&ctx);
+            let mut app = Editor::with_documents([]);
+            let mut doc = Document::default();
+            doc.text = "café\n\nsecond".into();
+            app.add(doc);
+            if active {
+                app.jump = Some(0..0);
+            }
+            let mut frame = eframe::Frame::_new_kittest();
+            let mut run = |events| {
+                ctx.run(
+                    egui::RawInput {
+                        events,
+                        ..Default::default()
+                    },
+                    |ctx| eframe::App::update(&mut app, ctx, &mut frame),
+                )
+            };
+            let output = run(vec![]);
+            let position = |word: &str, n| {
+                output
+                    .shapes
+                    .iter()
+                    .find_map(|entry| {
+                        let egui::Shape::Text(t) = &entry.shape else {
+                            return None;
+                        };
+                        if t.galley.text() != word {
+                            return None;
+                        }
+                        let cursor = t.galley.from_ccursor(CCursor::new(n));
+                        Some(t.pos + t.galley.pos_from_cursor(&cursor).center().to_vec2())
+                    })
+                    .unwrap()
+            };
+            let start = position("café", 1);
+            let end = position("second", 3);
+            let button = |pos, pressed| egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: Modifiers::NONE,
+            };
+            run(vec![egui::Event::PointerMoved(start), button(start, true)]);
+            run(vec![egui::Event::PointerMoved(end)]);
+            run(vec![button(end, false)]);
+            run(vec![]);
+            run(vec![egui::Event::Text("X".into())]);
+            assert_eq!(app.tabs[app.active].doc.text, "cXond", "active={active}");
+        }
     }
 
     #[test]
