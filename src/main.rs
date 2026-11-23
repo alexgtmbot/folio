@@ -261,10 +261,23 @@ impl Editor {
         let tab = &self.tabs[self.active];
         let text = &tab.doc.text;
         let start = byte_at(text, tab.selection.end);
-        if let Some(pos) = text[start..]
-            .find(query)
-            .map(|i| i + start)
-            .or_else(|| text.find(query))
+        let mut needle = query.chars();
+        let first = needle.next().expect("nonempty search query");
+        let same_letter = |a: char, b: char| a == b || a.to_lowercase().eq(b.to_lowercase());
+        let matches_from = |(pos, ch): (usize, char)| {
+            if !same_letter(ch, first) {
+                return false;
+            }
+            let mut rest = text[pos + ch.len_utf8()..].chars();
+            needle
+                .clone()
+                .all(|q| rest.next().is_some_and(|c| same_letter(c, q)))
+        };
+        if let Some((pos, _)) = text[start..]
+            .char_indices()
+            .map(|(pos, ch)| (start + pos, ch))
+            .chain(text[..start].char_indices())
+            .find(|&candidate| matches_from(candidate))
         {
             let n = text[..pos].chars().count();
             self.jump = Some(n..n + query.chars().count());
@@ -1844,6 +1857,18 @@ fn main() -> eframe::Result {
 #[cfg(test)]
 mod drop_tests {
     use super::*;
+    #[test]
+    fn find_ignores_case_and_wraps_with_original_character_offsets() {
+        let mut app = Editor::with_documents([]);
+        app.tabs[0].doc.text = "🦀 Café / CAFÉ".into();
+        app.find = Some("café".into());
+        for expected in [2..6, 9..13, 2..6] {
+            app.search();
+            assert_eq!(app.jump, Some(expected.clone()));
+            app.tabs[0].selection = expected;
+        }
+    }
+
     #[test]
     fn launch_documents_precede_the_untitled_fallback() {
         let dir = tempfile::tempdir().unwrap();
