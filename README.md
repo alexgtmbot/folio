@@ -35,6 +35,14 @@ In Write or Split, select words and paste an HTTP or HTTPS URL to link them. Sel
 
 Drop a PNG, JPEG, GIF, or WebP onto the editor to insert it at the caret. **⌘V** (Ctrl+V on Windows and Linux) also accepts clipboard images and copied image files. Folio saves pasted pixels as PNG and copies external images into a sibling folder such as `Field notes.assets/`. Images already inside the note’s directory are linked in place. For a new note, choose a save location when prompted. Keep the image folder with the Markdown file when sharing.
 
+In **Write**, press Enter between words in an ordinary paragraph to split it into two Markdown paragraphs. Folio inserts the blank line for you. Bold and italic carry across the split when the caret is inside styled text. For example, splitting **Café noir** between the words saves:
+
+```markdown
+**Café**
+
+**noir**
+```
+
 To build a list visually, choose **• List**, type an item, and press Enter for the next one. Tab nests the current item under its previous sibling. Shift+Tab brings it back one level. Enter on an empty nested item continues the parent list. Enter on an empty top-level item ends the list.
 
 Choose **Table**, or type `/table` and press Enter. Click a cell to edit it. Tab moves forward and Shift+Tab moves backward across row boundaries. Tab from the last cell adds a row. Right-click a cell to insert or remove rows and columns or change column alignment. Press Escape to return to the rendered table, or ⌘Enter (Ctrl+Enter on Windows and Linux) to write below it. You can also paste a GitHub-style pipe table and edit it in the same grid. [See the table editor](screenshots/table.png).
