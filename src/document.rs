@@ -561,7 +561,7 @@ pub fn block_enter(text: &str, caret: usize) -> Option<(Range<usize>, String)> {
     if !body.is_empty() {
         let mut depth = 0;
         let mut prose = false;
-        let mut delimiter = "";
+        let mut delimiters = Vec::new();
         for (event, span) in Parser::new_ext(text, crate::blocks::options()).into_offset_iter() {
             if span.start > end {
                 break;
@@ -578,7 +578,7 @@ pub fn block_enter(text: &str, caret: usize) -> Option<(Range<usize>, String)> {
                     return Some((caret..caret, "\n\n".into()));
                 }
                 Event::Start(tag @ (Tag::Strong | Tag::Emphasis | Tag::Strikethrough))
-                    if prose && depth == 1 && span.contains(&end) =>
+                    if prose && depth == delimiters.len() + 1 && span.contains(&end) =>
                 {
                     let width = match tag {
                         Tag::Strong => 2,
@@ -588,12 +588,12 @@ pub fn block_enter(text: &str, caret: usize) -> Option<(Range<usize>, String)> {
                             .count(),
                         _ => 1,
                     };
-                    delimiter = &text[span.start..span.start + width];
+                    delimiters.push(&text[span.start..span.start + width]);
                     depth += 1;
                 }
                 Event::Text(value)
-                    if depth == 2
-                        && !delimiter.is_empty()
+                    if depth == delimiters.len() + 1
+                        && !delimiters.is_empty()
                         && span.start < end
                         && end < span.end
                         && value.as_ref() == &text[span.clone()] =>
@@ -603,12 +603,9 @@ pub fn block_enter(text: &str, caret: usize) -> Option<(Range<usize>, String)> {
                     if !left.is_empty() && !right.is_empty() {
                         let from = caret - (end - span.start - left.len());
                         let to = caret + (span.end - end - right.len());
-                        return Some((from..to, format!("{delimiter}\n\n{delimiter}")));
+                        let close: String = delimiters.iter().rev().copied().collect();
+                        return Some((from..to, format!("{close}\n\n{}", delimiters.concat())));
                     }
-                }
-                Event::End(_) if depth == 2 => {
-                    delimiter = "";
-                    depth -= 1;
                 }
                 Event::Start(_) => depth += 1,
                 Event::End(_) => depth -= 1,
@@ -757,6 +754,36 @@ mod tests {
         }
         let nested = "- item\n  continuation";
         assert!(block_enter(nested, nested.len()).is_none());
+    }
+
+    #[test]
+    fn enter_preserves_the_order_of_nested_marks_on_both_paragraphs() {
+        for (source, html) in [
+            ("**_Café noir_**", "<strong><em>{}</em></strong>"),
+            ("***Café noir***", "<em><strong>{}</strong></em>"),
+            ("~~**Café noir**~~", "<del><strong>{}</strong></del>"),
+        ] {
+            let caret = source[..source.find("noir").unwrap()].chars().count();
+            let (range, insertion) = block_enter(source, caret).unwrap();
+            let mut edited = source.to_owned();
+            edited.replace_range(
+                byte_at(source, range.start)..byte_at(source, range.end),
+                &insertion,
+            );
+            let mut rendered = String::new();
+            pulldown_cmark::html::push_html(
+                &mut rendered,
+                pulldown_cmark::Parser::new_ext(&edited, crate::blocks::options()),
+            );
+            assert_eq!(
+                rendered,
+                format!(
+                    "<p>{}</p>\n<p>{}</p>\n",
+                    html.replace("{}", "Café"),
+                    html.replace("{}", "noir")
+                )
+            );
+        }
     }
 
     #[test]
