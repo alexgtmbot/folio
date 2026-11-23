@@ -36,6 +36,7 @@ struct Tab {
     edit_block: bool,
     history: history::History,
     recorded: Option<Instant>,
+    word_count: usize,
     table_edit: Option<(Range<usize>, String)>,
 }
 impl Tab {
@@ -173,6 +174,7 @@ impl Editor {
             edit_block,
             history: history::History::new(&doc.text),
             recorded: None,
+            word_count: blocks::word_count(&doc.text),
             table_edit: None,
             id: self.next_id,
             doc,
@@ -427,6 +429,7 @@ impl Editor {
                     tab.doc.refresh_dirty();
                     tab.edited = tab.doc.dirty.then(Instant::now);
                     tab.recorded = tab.edited;
+                    tab.word_count = blocks::word_count(&tab.doc.text);
                 }
             }
         }
@@ -746,7 +749,7 @@ impl Editor {
         }
         egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                let count = blocks::word_count(&tab.doc.text);
+                let count = tab.word_count;
                 ui.small(format!(
                     "{} {}",
                     count,
@@ -1676,6 +1679,7 @@ impl eframe::App for Editor {
             if tab.edited != tab.recorded {
                 tab.history.record(&tab.doc.text);
                 tab.recorded = tab.edited;
+                tab.word_count = blocks::word_count(&tab.doc.text);
             }
         }
         if shortcuts_enabled
@@ -2264,6 +2268,37 @@ mod slash_menu_tests {
             press(key, modifiers);
             press(Key::S, cmd);
             assert_eq!(std::fs::read_to_string(&path).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn status_word_count_follows_typing_undo_and_redo() {
+        let ctx = egui::Context::default();
+        configure_fonts(&ctx);
+        let mut app = Editor::with_documents([]);
+        let mut frame = eframe::Frame::_new_kittest();
+        let undo = |modifiers| egui::Event::Key {
+            key: Key::Z,
+            modifiers,
+            pressed: true,
+            repeat: false,
+            physical_key: None,
+        };
+        for (events, count) in [
+            (vec![], 0),
+            (
+                vec![egui::Event::Text("Trail ![red fox](fox.png)".into())],
+                3,
+            ),
+            (vec![undo(Modifiers::COMMAND)], 0),
+            (vec![undo(Modifiers::COMMAND | Modifiers::SHIFT)], 3),
+        ] {
+            let input = egui::RawInput {
+                events,
+                ..Default::default()
+            };
+            let _ = ctx.run(input, |ctx| eframe::App::update(&mut app, ctx, &mut frame));
+            assert_eq!(app.tabs[0].word_count, count);
         }
     }
 
