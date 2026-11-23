@@ -1,13 +1,13 @@
 [package]
 name = "folio"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 license = "MIT"
 
 [dependencies]
-objc2 = "0.6.5"
-objc2-foundation = "0.3.2"
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSApplication", "NSResponder", "NSDocument", "NSDocumentController", "NSWindow", "NSWindowController", "NSMenu", "NSMenuItem", "NSView", "NSControl", "NSButton", "NSCell", "NSColor", "NSFont", "NSFontManager", "NSScrollView", "NSClipView", "NSText", "NSTextView", "NSTextField", "NSTextStorage", "NSEvent", "NSSegmentedControl", "NSGraphics", "objc2-core-foundation", "NSRunningApplication", "NSFontDescriptor", "NSTextContainer", "NSParagraphStyle"] }
+eframe = { version = "0.31.1", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
+rfd = "0.15"
+tempfile = "3"
 
 [profile.release]
 lto = true

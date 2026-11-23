@@ -3,14 +3,64 @@ on: [push, pull_request]
 permissions:
   contents: read
 jobs:
-  macos:
-    name: macOS build and test
-    runs-on: macos-15
+  desktop:
+    name: ${{ matrix.platform }} build and test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macOS
+            os: macos-15
+          - platform: Linux
+            os: ubuntu-24.04
+          - platform: Windows
+            os: windows-2022
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
+      - run: rustup update stable --no-self-update
+      - run: rustup default stable
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-0 libwayland-dev libgl1-mesa-dev libx11-dev libxcb1-dev xvfb xdotool
       - run: cargo fmt --check
       - run: cargo test --locked
-      - run: ./build.sh
-      - run: target/Folio.app/Contents/MacOS/Folio --self-test
+      - run: cargo build --release --locked
+      - run: cargo run --release --locked -- --self-test
+      - if: runner.os == 'Linux'
+        name: Edit and save in an X11 window
+        run: |
+          printf 'Original text' > "$RUNNER_TEMP/Window check.md"
+          xvfb-run -a bash -eu -o pipefail -c '
+            target/release/folio "$RUNNER_TEMP/Window check.md" &
+            pid=$!
+            trap "kill $pid || true" EXIT
+            window=$(timeout 30 xdotool search --sync --name "Window check.md" | head -1)
+            xdotool windowfocus --sync "$window"
+            xdotool mousemove --window "$window" 300 65 click 1
+            xdotool key ctrl+a
+            xdotool type --delay 50 "Portable"
+            xdotool key ctrl+1 ctrl+s
+            for attempt in {1..30}; do
+              if [[ $(cat "$RUNNER_TEMP/Window check.md") == "# Portable" ]]; then exit 0; fi
+              sleep 0.2
+            done
+            cat "$RUNNER_TEMP/Window check.md" >&2
+            exit 1
+          '
+      - if: runner.os == 'macOS'
+        run: ./package.sh
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path target/release/folio.exe,LICENSE,assets/fonts/UFL.txt -DestinationPath target/Folio-Windows-x64.zip
+      - if: runner.os == 'Linux'
+        run: tar -czf target/Folio-Linux-x64.tar.gz -C target/release folio -C "$GITHUB_WORKSPACE" LICENSE assets/fonts/UFL.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Folio-${{ matrix.platform }}
+          path: |
+            target/*.dmg
+            target/Folio-Windows-x64.zip
+            target/Folio-Linux-x64.tar.gz
+          if-no-files-found: error

@@ -77,18 +77,6 @@ impl Fence {
     }
 }
 
-// AppKit selections count UTF-16 units, while Rust strings use UTF-8 byte offsets.
-pub fn byte_at(text: &str, utf16: usize) -> usize {
-    let mut units = 0;
-    for (i, ch) in text.char_indices() {
-        if units + ch.len_utf16() > utf16 {
-            return i;
-        }
-        units += ch.len_utf16();
-    }
-    text.len()
-}
-
 pub fn inline(line: &str, mut visit: impl FnMut(Range<usize>, &str)) {
     let mut pos = 0;
     while pos < line.len() {
@@ -142,7 +130,6 @@ mod tests {
             assert_eq!(block_prefix(s), n);
         }
         let s = "🦀 **café** and `六`";
-        assert_eq!(byte_at(s, 2), 4);
         let mut spans = Vec::new();
         inline(s, |r, _| spans.push(&s[r]));
         assert_eq!(spans, ["**café**", "`六`"]);
