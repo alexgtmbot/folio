@@ -30,3 +30,4 @@ egui-winit = { path = "vendor/egui-winit" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.9"
+core-foundation-sys = "0.8"

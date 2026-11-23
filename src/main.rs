@@ -5,6 +5,8 @@ mod document;
 mod history;
 mod link;
 #[cfg(target_os = "macos")]
+mod mac_open;
+#[cfg(target_os = "macos")]
 mod mac_png;
 mod slash;
 mod table;
@@ -1382,6 +1384,10 @@ impl eframe::App for Editor {
         });
     }
     fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
+        #[cfg(target_os = "macos")]
+        for path in mac_open::pending() {
+            self.open(&path);
+        }
         if ctx.input(|i| i.viewport().close_requested())
             && !self.quit
             && self.tabs.iter().any(|t| t.doc.dirty)
@@ -1552,6 +1558,8 @@ fn main() -> eframe::Result {
         self_test();
         return Ok(());
     }
+    #[cfg(target_os = "macos")]
+    mac_open::on_launch();
     let native = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([940., 660.])
@@ -1562,6 +1570,11 @@ fn main() -> eframe::Result {
         "Folio",
         native,
         Box::new(|cc| {
+            #[cfg(target_os = "macos")]
+            {
+                mac_open::install()?;
+                mac_open::attach(&cc.egui_ctx);
+            }
             configure_fonts(&cc.egui_ctx);
             let mut editor = Editor::new();
             if let Some(width) = cc
