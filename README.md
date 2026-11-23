@@ -46,6 +46,7 @@ In Write mode, type **/** at the beginning of a line and filter by name (for exa
 | Open / Save | ⌘O / ⌘S | Ctrl+O / Ctrl+S |
 | Undo / Redo | ⌘Z / ⇧⌘Z | Ctrl+Z / Ctrl+Shift+Z |
 | Write / Source | ⌘/ | Ctrl+/ |
+| Numbered / bullet list | ⇧⌘7 / ⇧⌘8 | Ctrl+Shift+7 / Ctrl+Shift+8 |
 | Heading | ⌘1–6 | Ctrl+1–6 |
 | Bold / Italic | ⌘B / ⌘I | Ctrl+B / Ctrl+I |
 | Toggle task | ⇧⌘T | Ctrl+Shift+T |

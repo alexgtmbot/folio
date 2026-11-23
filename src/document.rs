@@ -134,6 +134,49 @@ pub fn format(text: &mut String, selection: Range<usize>, cmd: Format) -> Range<
             text.insert_str(start, mark);
             selection.start + mark.len()..selection.end + mark.len()
         }
+        Format::Block(prefix @ ("- " | "1. ")) => {
+            let first = text[..start].rfind('\n').map_or(0, |i| i + 1);
+            let last = if end > start && text[..end].ends_with('\n') {
+                end - 1
+            } else {
+                end
+            };
+            let stop = text[last..].find('\n').map_or(text.len(), |n| last + n);
+            let mut output = String::new();
+            let mut index = 0;
+            let mut first_caret = 0;
+            for (line_number, line) in text[first..stop].split('\n').enumerate() {
+                if line_number > 0 {
+                    output.push('\n');
+                }
+                if !selection.is_empty() && line.trim().is_empty() {
+                    output.push_str(line);
+                    continue;
+                }
+                let body = line.trim_start_matches([' ', '\t']);
+                let indent = line.len() - body.len();
+                output.push_str(&line[..indent]);
+                index += 1;
+                if prefix == "1. " {
+                    output.push_str(&format!("{index}. "));
+                } else {
+                    output.push_str(prefix);
+                }
+                if index == 1 {
+                    first_caret = output.chars().count();
+                }
+                output.push_str(&body[block_prefix(body)..]);
+            }
+            let offset = text[..first].chars().count();
+            let finish = offset + output.chars().count();
+            text.replace_range(first..stop, &output);
+            if selection.is_empty() {
+                let pos = offset + first_caret;
+                pos..pos
+            } else {
+                offset..finish
+            }
+        }
         Format::Block(_) | Format::Task => {
             let pos = text[..start].rfind(['\r', '\n']).map_or(0, |i| i + 1);
             let line = &text[pos..];
@@ -227,6 +270,16 @@ mod tests {
         );
     }
 
+    #[test]
+    fn list_commands_convert_selected_lines_without_consuming_the_next_line() {
+        let mut text = "before\n🦀\n\n- [x] café\n3) three\nafter".to_owned();
+        let start = "before\n".chars().count();
+        let end = text[..text.find("after").unwrap()].chars().count();
+        let selection = format(&mut text, start..end, Format::Block("1. "));
+        assert_eq!(text, "before\n1. 🦀\n\n2. café\n3. three\nafter");
+        format(&mut text, selection, Format::Block("- "));
+        assert_eq!(text, "before\n- 🦀\n\n- café\n- three\nafter");
+    }
     #[test]
     fn edit_save_and_conflict() {
         let dir = tempfile::tempdir().unwrap();

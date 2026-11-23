@@ -38,7 +38,18 @@ pub fn block_prefix(line: &str) -> usize {
     let hashes = line.bytes().take_while(|&c| c == b'#').count();
     if (1..=6).contains(&hashes) && line.as_bytes().get(hashes) == Some(&b' ') {
         hashes + 1
-    } else if ["> ", "- ", "* "].iter().any(|p| line.starts_with(p)) {
+    } else if ["- [ ] ", "- [x] ", "- [X] "]
+        .iter()
+        .any(|p| line.starts_with(p))
+    {
+        6
+    } else if let Some((marker, _)) = line.split_once(' ')
+        && let Some(n) = marker.strip_suffix(['.', ')'])
+        && (1..=9).contains(&n.len())
+        && n.bytes().all(|b| b.is_ascii_digit())
+    {
+        marker.len() + 1
+    } else if ["> ", "- ", "* ", "+ "].iter().any(|p| line.starts_with(p)) {
         2
     } else {
         0

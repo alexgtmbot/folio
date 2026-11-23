@@ -362,6 +362,8 @@ impl Editor {
             (cmd, Key::Num4, Format::Block("#### ")),
             (cmd, Key::Num5, Format::Block("##### ")),
             (cmd, Key::Num6, Format::Block("###### ")),
+            (shifted, Key::Num7, Format::Block("1. ")),
+            (shifted, Key::Num8, Format::Block("- ")),
             (shifted, Key::T, Format::Task),
         ] {
             if key(m, k) {
@@ -418,6 +420,7 @@ impl Editor {
                         ("Italic", Format::Wrap("*")),
                         ("Inline code", Format::Wrap("`")),
                         ("Bullet list", Format::Block("- ")),
+                        ("Numbered list", Format::Block("1. ")),
                         ("Quote", Format::Block("> ")),
                         ("Toggle task", Format::Task),
                     ] {
