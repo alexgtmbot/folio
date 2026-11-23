@@ -23,7 +23,7 @@ jobs:
       - run: rustup update stable --no-self-update
       - run: rustup default stable
       - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-0 libwayland-dev libgl1-mesa-dev libx11-dev libxcb1-dev xvfb xdotool
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-0 libwayland-dev libgl1-mesa-dev libx11-dev libxcb1-dev libxcursor1 libxi6 libxrandr2 xvfb xdotool
       - run: cargo fmt --check
       - run: cargo test --locked
       - run: cargo build --release --locked
