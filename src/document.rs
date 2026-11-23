@@ -373,6 +373,20 @@ pub fn format(text: &mut String, selection: Range<usize>, cmd: Format) -> Range<
                 _ => task_prefix(line),
             };
             let line_start = text[..pos].chars().count();
+            let mut selection = selection;
+            if prefix.is_empty() && n > 0 && line.starts_with('#') {
+                let heading = line.lines().next().unwrap_or_default();
+                let trimmed = heading.trim_end_matches([' ', '\t']);
+                let before_hashes = trimmed.trim_end_matches('#');
+                if before_hashes.len() < trimmed.len() && before_hashes.ends_with([' ', '\t']) {
+                    let title_end = before_hashes.trim_end_matches([' ', '\t']).len().max(n);
+                    let at = line_start + heading[..title_end].chars().count();
+                    let removed = heading.len() - title_end;
+                    let remap = |cursor: usize| cursor - cursor.saturating_sub(at).min(removed);
+                    selection = remap(selection.start)..remap(selection.end);
+                    text.replace_range(pos + title_end..pos + heading.len(), "");
+                }
+            }
             let remap =
                 |cursor: usize| line_start + prefix.len() + cursor.saturating_sub(line_start + n);
             text.replace_range(pos..pos + n, prefix);
@@ -780,6 +794,22 @@ mod tests {
         let mut text = "écho".to_owned();
         assert_eq!(format(&mut text, 2..2, Format::Block("> ")), 4..4);
         assert_eq!(text, "> écho");
+    }
+
+    #[test]
+    fn converting_closed_headings_to_paragraphs_keeps_only_title_text() {
+        for (source, expected) in [
+            ("## Café ###  \nNext", "Café\nNext"),
+            ("## ###", ""),
+            ("## C#", "C#"),
+            (r"## literal \#", r"literal \#"),
+        ] {
+            let mut md = source.to_owned();
+            let end = md.chars().count();
+            let selection = format(&mut md, 0..end, Format::Block(""));
+            assert_eq!(md, expected);
+            assert_eq!(selection, 0..expected.chars().count());
+        }
     }
 
     #[test]
