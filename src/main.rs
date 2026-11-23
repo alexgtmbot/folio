@@ -436,7 +436,8 @@ impl Editor {
                         self.focus_find = false;
                     }
                     if ui.button("Find next").clicked()
-                        || response.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter))
+                        || response.lost_focus()
+                            && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter))
                     {
                         self.search();
                     }
@@ -786,6 +787,24 @@ impl Editor {
                                     })
                                 });
                             }
+                            let vertical =
+                                if visual && has_focus && !moved && tab.selection.is_empty() {
+                                    ui.input(|i| {
+                                        if i.modifiers != Modifiers::NONE {
+                                            None
+                                        } else if first > 0 && i.key_pressed(Key::ArrowUp) {
+                                            Some(true)
+                                        } else if last + 1 < ranges.len()
+                                            && i.key_pressed(Key::ArrowDown)
+                                        {
+                                            Some(false)
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                } else {
+                                    None
+                                };
                             let mut contents = tab.doc.text[active.clone()].to_owned();
                             let output = TextEdit::multiline(&mut contents)
                                 .id(id)
@@ -794,6 +813,35 @@ impl Editor {
                                 .desired_rows(if visual { 1 } else { 24 })
                                 .layouter(&mut layouter)
                                 .show(ui);
+                            if let Some(up) = vertical
+                                && !output.response.changed()
+                            {
+                                let cursor =
+                                    output.galley.from_ccursor(CCursor::new(caret)).rcursor;
+                                let last_content =
+                                    contents.trim_end_matches(['\r', '\n']).chars().count();
+                                let bottom = output
+                                    .galley
+                                    .from_ccursor(CCursor::new(last_content))
+                                    .rcursor
+                                    .row;
+                                if (up && cursor.row == 0) || (!up && cursor.row >= bottom) {
+                                    let neighbor = if up { first - 1 } else { last + 1 };
+                                    let column = if cursor.row == 0 {
+                                        cursor.column.saturating_sub(folio::block_prefix(&contents))
+                                    } else {
+                                        cursor.column
+                                    };
+                                    let pos = blocks::adjacent_caret(
+                                        &tab.doc.text,
+                                        ranges[neighbor].clone(),
+                                        up,
+                                        column,
+                                    );
+                                    self.jump = Some(pos..pos);
+                                    ctx.request_repaint();
+                                }
+                            }
                             let delta = contents.len() as isize - active.len() as isize;
                             if output.response.changed() {
                                 tab.doc.text.replace_range(active.clone(), &contents);

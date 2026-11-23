@@ -51,9 +51,32 @@ pub fn with_references(text: &str, r: &Range<usize>, definitions: &[Range<usize>
     block
 }
 
+/// Land on the neighboring block's first or last content line, past its block marker.
+pub fn adjacent_caret(text: &str, block: Range<usize>, up: bool, column: usize) -> usize {
+    let content = text[block.clone()].trim_end_matches(['\r', '\n']);
+    let line = if up {
+        content.rsplit('\n').next()
+    } else {
+        content.split('\n').next()
+    }
+    .unwrap_or("");
+    let line_start = block.start + if up { content.len() - line.len() } else { 0 };
+    let prefix = folio::block_prefix(line);
+    text[..line_start + prefix].chars().count()
+        + column.min(line[prefix..].trim_end_matches('\r').chars().count())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn vertical_navigation_lands_in_content() {
+        let text = "# 🦀\n\nfirst\nsecond\n\n";
+        let r = ranges(text);
+        assert_eq!(adjacent_caret(text, r[0].clone(), true, 10), 3);
+        assert_eq!(adjacent_caret(text, r[1].clone(), false, 2), 7);
+        assert_eq!(adjacent_caret(text, r[1].clone(), true, 2), 13);
+    }
     #[test]
     fn blocks_cover_original_bytes() {
         for input in [
