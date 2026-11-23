@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Folio
+GenericName=Markdown Editor
+Exec=folio %F
+Icon=local.folio.editor
+Terminal=false
+Categories=Utility;TextEditor;
+MimeType=text/markdown;text/x-markdown;

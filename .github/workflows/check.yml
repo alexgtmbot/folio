@@ -23,7 +23,7 @@ jobs:
       - run: rustup update stable --no-self-update
       - run: rustup default stable
       - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-0 libwayland-dev libgl1-mesa-dev libx11-dev libxcb1-dev libxcursor1 libxi6 libxrandr2 xvfb xdotool xclip
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-0 libwayland-dev libgl1-mesa-dev libx11-dev libxcb1-dev libxcursor1 libxi6 libxrandr2 xvfb xdotool xclip desktop-file-utils
       - run: cargo fmt --check
       - run: cargo test --locked
       - run: cargo build --release --locked
@@ -69,7 +69,9 @@ jobs:
         shell: pwsh
         run: Compress-Archive -Path target/release/folio.exe,LICENSE,assets/fonts/UFL.txt -DestinationPath target/Folio-Windows-x64.zip
       - if: runner.os == 'Linux'
-        run: tar -czf target/Folio-Linux-x64.tar.gz -C target/release folio -C "$GITHUB_WORKSPACE" LICENSE assets/fonts/UFL.txt
+        run: |
+          desktop-file-validate assets/local.folio.editor.desktop
+          tar -czf target/Folio-Linux-x64.tar.gz -C target/release folio -C "$GITHUB_WORKSPACE" LICENSE assets/fonts/UFL.txt assets/Folio.svg assets/local.folio.editor.desktop
       - uses: actions/upload-artifact@v4
         with:
           name: Folio-${{ matrix.platform }}

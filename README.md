@@ -15,6 +15,18 @@ Open a file, format it as you write, and save ordinary Markdown. Folio runs in i
 | [![Write view with formatting tools and an aligned route table](screenshots/visual-editor.png)](screenshots/visual-editor.png) | [![Visual editor beside its Markdown output](screenshots/visual-split.png)](screenshots/visual-split.png) |
 | Choose a heading in **Outline** to jump to that section. Use the formatting toolbar to style the current line or selection. | Switch modes in the toolbar to see the characters Folio saves, including heading markers, emphasis, and tasks. |
 
+## Install on Linux
+
+Extract the Linux archive and run `./folio`. To add Folio to your application menu and your file manager’s **Open With** choices, run these commands from the extracted directory:
+
+```sh
+sudo install -m 755 folio /usr/local/bin/folio
+data_dir="${XDG_DATA_HOME:-$HOME/.local/share}"
+install -Dm644 assets/Folio.svg "$data_dir/icons/hicolor/scalable/apps/local.folio.editor.svg"
+install -Dm644 assets/local.folio.editor.desktop "$data_dir/applications/local.folio.editor.desktop"
+update-desktop-database "$data_dir/applications"
+```
+
 ## Run from source
 
 Install stable Rust and the C linker for your platform (Xcode Command Line Tools on macOS, Visual Studio C++ Build Tools on Windows). On Ubuntu, install the build prerequisites:
