@@ -418,21 +418,24 @@ pub fn layout(
     let mut pos = 0;
     // egui indexes the galley and the source by Unicode scalar. Keep one
     // invisible glyph per delimiter so selections still edit the original bytes.
-    let append_gap = |job: &mut LayoutJob, gap: std::ops::Range<usize>| {
+    let append_gap = |job: &mut LayoutJob, gap: std::ops::Range<usize>, before_task: bool| {
+        let end = gap.end;
         let mut at = gap.start;
         for line in text[gap].split_inclusive('\n') {
             let trimmed = line.trim_start_matches([' ', '\t']);
             let indent = line.len() - trimmed.len();
             let line_start = at == 0 || text[..at].ends_with('\n');
             let bullet = line_start && ["- ", "+ ", "* "].iter().any(|p| trimmed.starts_with(p));
+            let task_bullet = bullet && before_task && at + line.len() == end;
             let mut shown = String::new();
             for (i, c) in line.char_indices() {
                 shown.push(if c == '\n' || (line_start && i < indent) {
                     c
-                } else if bullet && i == indent {
+                } else if bullet && !task_bullet && i == indent {
                     '•'
                 } else if c == ' '
                     && line_start
+                    && !task_bullet
                     && (bullet || trimmed.as_bytes().first().is_some_and(u8::is_ascii_digit))
                 {
                     ' '
@@ -470,7 +473,8 @@ pub fn layout(
                 faces.pop();
             }
             _ if r.start >= pos => {
-                append_gap(&mut job, pos..r.start);
+                let task = matches!(event, Event::TaskListMarker(_));
+                append_gap(&mut job, pos..r.start, task);
                 let f = if matches!(event, Event::Code(_)) {
                     &mono
                 } else {
@@ -515,11 +519,17 @@ pub fn layout(
                     _ => job.append(&text[r.clone()], 0., f.clone()),
                 }
                 pos = r.end;
+                if task {
+                    let spaces =
+                        text[pos..].len() - text[pos..].trim_start_matches([' ', '\t']).len();
+                    job.append(&text[pos..pos + spaces], 0., f.clone());
+                    pos += spaces;
+                }
             }
             _ => {}
         }
     }
-    append_gap(&mut job, pos..text.len());
+    append_gap(&mut job, pos..text.len(), false);
     job
 }
 
@@ -716,6 +726,17 @@ mod tests {
             }
         }
         assert_eq!(toggled, Some((source.find("[X]").unwrap() + 1, false)));
+    }
+
+    #[test]
+    fn visual_checklists_show_one_marker_and_space_before_label() {
+        let source = "- [x] Read\n- [ ] **Write**\n- Ordinary";
+        let visual = layout(source, 500., Color32::WHITE, false, 0, 17.).text;
+        assert_eq!(
+            visual.replace('\u{200b}', ""),
+            "☑ Read\n☐ Write\n• Ordinary"
+        );
+        assert_eq!(visual.chars().count(), source.chars().count());
     }
 
     #[test]
