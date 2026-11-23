@@ -594,6 +594,11 @@ pub fn layout(
                             f.clone(),
                         );
                     }
+                    Event::HardBreak => {
+                        for c in text[r.clone()].chars() {
+                            job.append(if c == '\n' { "\n" } else { "\u{200b}" }, 0., f.clone());
+                        }
+                    }
                     Event::Code(ref value) => {
                         let raw = &text[r.clone()];
                         let ticks = raw.bytes().take_while(|b| *b == b'`').count();
@@ -900,6 +905,19 @@ mod tests {
         assert_eq!(visual.replace('\u{200b}', ""), "Café & a  b");
         assert_eq!(visual.chars().count(), source.chars().count());
     }
+    #[test]
+    fn hard_breaks_hide_the_marker_and_preserve_caret_positions() {
+        for source in ["Café\\\nnext", "Café  \nnext"] {
+            let visual = layout(source, 500., Color32::WHITE, false, 0, 17.).text;
+            assert_eq!(visual.replace('\u{200b}', ""), "Café\nnext");
+            assert_eq!(visual.chars().count(), source.chars().count());
+            assert_eq!(
+                layout(source, 500., Color32::WHITE, true, 0, 17.).text,
+                source
+            );
+        }
+    }
+
     #[test]
     fn typed_heading_and_emphasis_hide_delimiters_in_write() {
         let source = "# My **notes**";
