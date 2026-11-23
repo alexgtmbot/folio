@@ -414,6 +414,7 @@ pub fn layout(
         return job;
     }
     use pulldown_cmark::{Event, Parser, Tag};
+    let mut list_depth = 0;
     let mut faces = vec![body.clone()];
     let mut pos = 0;
     // egui indexes the galley and the source by Unicode scalar. Keep one
@@ -454,6 +455,16 @@ pub fn layout(
             Event::Start(tag) => {
                 let mut f = faces.last().unwrap().clone();
                 match tag {
+                    Tag::List(_) => {
+                        let before = text[..r.start].trim_end_matches([' ', '\t']);
+                        if list_depth > 0 && before.ends_with("\n\n") && pos < before.len() {
+                            let blank = before.len() - 1;
+                            append_gap(&mut job, pos..blank, false);
+                            job.append("\u{200b}", 0., body.clone());
+                            pos = blank + 1;
+                        }
+                        list_depth += 1;
+                    }
                     Tag::Heading { level, .. } => {
                         f.font_id = FontId::new(
                             size * (2.0 - (level as usize - 1) as f32 * 0.17),
@@ -469,7 +480,10 @@ pub fn layout(
                 }
                 faces.push(f);
             }
-            Event::End(_) => {
+            Event::End(tag) => {
+                if matches!(tag, pulldown_cmark::TagEnd::List(_)) {
+                    list_depth -= 1;
+                }
                 faces.pop();
             }
             _ if r.start >= pos => {
@@ -771,6 +785,18 @@ mod tests {
             layout(source, 500., Color32::WHITE, true, 0, 17.).text,
             source
         );
+    }
+
+    #[test]
+    fn write_compacts_nested_list_separators_and_preserves_paragraph_breaks() {
+        let md = "Intro\n\n- Hey\n\n  - Howdy\n\n    - ";
+        let job = layout(md, 480., Color32::WHITE, false, 0, 17.);
+        assert_eq!(
+            job.text.replace('\u{200b}', ""),
+            "Intro\n\n• Hey\n  • Howdy\n    • "
+        );
+        assert_eq!(job.text.chars().count(), md.chars().count());
+        assert_eq!(layout(md, 480., Color32::WHITE, true, 0, 17.).text, md);
     }
 
     #[test]
