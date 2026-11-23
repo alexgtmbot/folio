@@ -45,9 +45,8 @@ impl Tab {
     ) -> Option<Range<usize>> {
         let base = self.doc.path.as_deref().and_then(|p| p.parent());
         match window::editable_block(ui, cache, &self.doc.text, r, definitions, base, size) {
-            window::BlockAction::Edit => {
-                let pos = self.doc.text[..r.start].chars().count()
-                    + folio::block_prefix(&self.doc.text[r.clone()]);
+            window::BlockAction::Edit(byte) => {
+                let pos = self.doc.text[..byte].chars().count();
                 ui.ctx().request_repaint();
                 Some(pos..pos)
             }

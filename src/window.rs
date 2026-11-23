@@ -168,10 +168,77 @@ fn tasks(text: &str) -> impl Iterator<Item = std::ops::Range<usize>> + '_ {
         .filter_map(|(e, r)| matches!(e, pulldown_cmark::Event::TaskListMarker(_)).then_some(r))
 }
 pub enum BlockAction {
-    Edit,
+    Edit(usize),
     Task(usize, bool),
     None,
 }
+/// Match painted glyph runs to parser text in reading order. This also handles
+/// multiple equally named links and repeated words in separate table cells.
+fn clicked_byte(ui: &egui::Ui, first: usize, pointer: egui::Pos2, source: &str) -> Option<usize> {
+    use pulldown_cmark::{Event, Parser};
+    let mut visible = String::new();
+    let mut positions = Vec::new();
+    for (event, range) in Parser::new_ext(source, crate::blocks::options()).into_offset_iter() {
+        let value = match event {
+            Event::Text(t) | Event::Code(t) => t,
+            _ => continue,
+        };
+        let raw = &source[range.clone()];
+        let start = raw.find(value.as_ref()).map(|n| range.start + n);
+        for (i, c) in value.char_indices() {
+            positions.push((
+                visible.len(),
+                start.map_or(range.start, |s| s + i),
+                start.map_or(range.end, |s| s + i + c.len_utf8()),
+            ));
+            visible.push(c);
+        }
+    }
+    ui.ctx().graphics(|graphics| {
+        let list = graphics.get(ui.layer_id())?;
+        let mut from = 0;
+        let mut closest = None;
+        for entry in list.all_entries().skip(first) {
+            let egui::Shape::Text(shape) = &entry.shape else {
+                continue;
+            };
+            let run = shape.galley.text();
+            let run = run.trim_matches('\n');
+            if run.is_empty() {
+                continue;
+            }
+            let Some(relative) = visible[from..].find(run) else {
+                continue;
+            };
+            let start = from + relative;
+            from = start + run.len();
+            let rect = shape
+                .galley
+                .rect
+                .translate(shape.pos.to_vec2())
+                .intersect(entry.clip_rect);
+            let distance = rect.distance_sq_to_pos(pointer);
+            if closest.is_some_and(|(d, _)| d <= distance) {
+                continue;
+            }
+            let cursor = shape
+                .galley
+                .cursor_from_pos(pointer - shape.pos)
+                .ccursor
+                .index;
+            let byte = start + crate::document::byte_at(run, cursor);
+            let index = positions.partition_point(|(i, _, _)| *i < byte);
+            let offset = if byte == from {
+                positions[index - 1].2
+            } else {
+                positions[index].1
+            };
+            closest = Some((distance, offset));
+        }
+        closest.map(|(_, byte)| byte)
+    })
+}
+
 pub fn editable_block(
     ui: &mut egui::Ui,
     cache: &mut egui_commonmark::CommonMarkCache,
@@ -181,6 +248,16 @@ pub fn editable_block(
     base: Option<&std::path::Path>,
     size: f32,
 ) -> BlockAction {
+    let pointer = ui.input(|i| {
+        i.pointer
+            .primary_clicked()
+            .then(|| i.pointer.interact_pos())
+            .flatten()
+    });
+    let first = pointer.map(|_| {
+        ui.ctx()
+            .graphics(|g| g.get(ui.layer_id()).map_or(0, |list| list.next_idx().0))
+    });
     let source = crate::blocks::with_references(text, r, definitions);
     let response = ui.push_id(r.start, |ui| {
         let task = render(ui, cache, &source, base, size, true);
@@ -193,13 +270,14 @@ pub fn editable_block(
         return BlockAction::Task(r.start + marker.start + 1, checked);
     }
     let rect = response.response.rect;
-    if ui.input(|i| {
-        i.pointer.primary_clicked()
-            && i.pointer
-                .interact_pos()
-                .is_some_and(|p| rect.contains(p) && ui.clip_rect().contains(p))
-    }) {
-        BlockAction::Edit
+    if let Some(p) = pointer
+        && rect.contains(p)
+        && ui.clip_rect().contains(p)
+    {
+        let block = &text[r.clone()];
+        let byte = clicked_byte(ui, first.unwrap_or(0), p, block)
+            .unwrap_or_else(|| folio::block_prefix(block));
+        BlockAction::Edit(r.start + byte)
     } else {
         BlockAction::None
     }
@@ -442,6 +520,55 @@ mod tests {
             preview_text(source),
             "- Tell me about your day  \ntest  \ntest\n- next\n\n```\na\nb\n```"
         );
+    }
+    #[test]
+    fn click_places_caret_inside_second_occurrence_of_formatted_unicode_text() {
+        let source = "café **café** tail";
+        let ctx = egui::Context::default();
+        crate::configure_fonts(&ctx);
+        let mut cache = Default::default();
+        let mut click = None;
+        let mut result = None;
+        for frame in 0..3 {
+            let mut input = egui::RawInput::default();
+            if let Some(pos) = click
+                && frame > 0
+            {
+                input.events = vec![
+                    egui::Event::PointerMoved(pos),
+                    egui::Event::PointerButton {
+                        pos,
+                        button: egui::PointerButton::Primary,
+                        pressed: frame == 1,
+                        modifiers: Default::default(),
+                    },
+                ];
+            }
+            let output = ctx.run(input, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    if let BlockAction::Edit(byte) =
+                        editable_block(ui, &mut cache, source, &(0..source.len()), &[], None, 17.)
+                    {
+                        result = Some(byte);
+                    }
+                });
+            });
+            if frame == 0 {
+                for entry in output.shapes {
+                    if let egui::Shape::Text(shape) = entry.shape
+                        && let Some(start) = shape.galley.text().rfind("café")
+                    {
+                        let n = shape.galley.text()[..start].chars().count() + 2;
+                        let cursor = shape.galley.from_ccursor(egui::text::CCursor::new(n));
+                        click = Some(
+                            shape.pos + shape.galley.pos_from_cursor(&cursor).center().to_vec2(),
+                        );
+                    }
+                }
+                assert!(click.is_some());
+            }
+        }
+        assert_eq!(result, Some(source.rfind("café").unwrap() + 2));
     }
     #[test]
     fn clicking_rendered_task_after_soft_break_targets_original_byte() {
