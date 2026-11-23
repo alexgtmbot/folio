@@ -209,13 +209,15 @@ pub fn format(text: &mut String, selection: Range<usize>, cmd: Format) -> Range<
                 } else {
                     output.push_str(prefix);
                 }
-                if index == 1 {
-                    first_caret = output.chars().count();
-                }
                 // Changing list style replaces the bullet, preserving any checkbox after it.
                 let content = body
                     .strip_prefix("- ")
                     .unwrap_or_else(|| &body[block_prefix(body)..]);
+                if selection.is_empty() {
+                    let content_start = first + line.len() - content.len();
+                    let preceding = &text[content_start..start.max(content_start)];
+                    first_caret = output.chars().count() + preceding.chars().count();
+                }
                 output.push_str(content);
             }
             let offset = text[..first].chars().count();
@@ -525,6 +527,18 @@ mod tests {
         );
         assert_eq!(list_enter("Title\n-", 7), None);
         assert_eq!(list_enter("- content", 1), None);
+    }
+
+    #[test]
+    fn list_conversion_preserves_a_caret_inside_the_item_text() {
+        let mut md = "Trail\n  Café noir".to_owned();
+        let caret = "Trail\n  Café".chars().count();
+        let caret = format(&mut md, caret..caret, Format::Block("- "));
+        assert_eq!(md, "Trail\n  - Café noir");
+        assert_eq!(&md[byte_at(&md, caret.start)..], " noir");
+        let caret = format(&mut md, caret, Format::Block("1. "));
+        assert_eq!(md, "Trail\n  1. Café noir");
+        assert_eq!(&md[byte_at(&md, caret.start)..], " noir");
     }
 
     #[test]
