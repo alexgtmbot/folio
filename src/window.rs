@@ -245,15 +245,28 @@ pub fn layout(
                             f.clone(),
                         );
                     }
-                    Event::Code(_) => {
+                    Event::Code(ref value) => {
                         let raw = &text[r.clone()];
                         let ticks = raw.bytes().take_while(|b| *b == b'`').count();
-                        let hidden = "\u{200b}".repeat(ticks);
+                        let trailing = raw.chars().count() - ticks - value.chars().count();
                         job.append(
-                            &format!("{hidden}{}{hidden}", &raw[ticks..raw.len() - ticks]),
+                            &format!(
+                                "{}{}{}",
+                                "\u{200b}".repeat(ticks),
+                                value,
+                                "\u{200b}".repeat(trailing)
+                            ),
                             0.,
                             f.clone(),
                         );
+                    }
+                    Event::Text(ref value)
+                        if value.as_ref() != &text[r.clone()]
+                            && value.chars().count() <= text[r.clone()].chars().count() =>
+                    {
+                        let padding = text[r.clone()].chars().count() - value.chars().count();
+                        job.append(value, 0., f.clone());
+                        job.append(&"\u{200b}".repeat(padding), 0., f.clone());
                     }
                     _ => job.append(&text[r.clone()], 0., f.clone()),
                 }
@@ -369,6 +382,13 @@ mod tests {
         assert_eq!(toggled, Some((source.find("[X]").unwrap() + 1, false)));
     }
 
+    #[test]
+    fn visual_text_decodes_entities_and_normalizes_code_spans() {
+        let source = "Caf&eacute; &amp; ` a  b `";
+        let visual = layout(source, 500., Color32::WHITE, false, 0, 17.).text;
+        assert_eq!(visual.replace('\u{200b}', ""), "Café & a  b");
+        assert_eq!(visual.chars().count(), source.chars().count());
+    }
     #[test]
     fn typed_heading_and_emphasis_hide_delimiters_in_write() {
         let source = "# My **notes**";
