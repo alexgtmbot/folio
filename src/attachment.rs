@@ -138,7 +138,8 @@ fn markup(label: &str, relative: &Path) -> io::Result<String> {
         .add(b'%')
         .add(b'#')
         .add(b'?')
-        .add(b':');
+        .add(b':')
+        .add(b'\\');
     let mut dest = String::new();
     for part in relative.components() {
         if !dest.is_empty() {
@@ -158,12 +159,12 @@ mod tests {
     use super::*;
     #[cfg(unix)]
     #[test]
-    fn dropped_filename_with_a_colon_resolves_as_a_local_image() {
+    fn dropped_filename_with_url_delimiters_resolves_as_a_local_image() {
         use pulldown_cmark::{Event, Parser, Tag};
         let dir = tempfile::tempdir().unwrap();
         let parent = dir.path().canonicalize().unwrap();
         let note = parent.join("Field notes.md");
-        let file = parent.join("data:field #1 (café).png");
+        let file = parent.join(r"data:field\map #1 (café).png");
         image::RgbaImage::new(1, 1).save(&file).unwrap();
         let md = store(&note, Image::File(file.clone())).unwrap();
         let dest = Parser::new(&md)
