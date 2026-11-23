@@ -1,11 +1,17 @@
 [package]
 name = "folio"
-version = "0.3.1"
+version = "0.4.0"
 edition = "2024"
 license = "MIT"
 
 [dependencies]
-eframe = { version = "0.31.1", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
+arboard = { version = "3.7", features = ["wayland-data-control"] }
+eframe = { version = "0.31.1", default-features = false, features = ["default_fonts", "glow", "persistence", "x11", "wayland"] }
+egui_commonmark = "0.20.0"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+pulldown-cmark = { version = "0.12.2", default-features = false }
+percent-encoding = "2"
+url = "2"
 rfd = "0.15"
 tempfile = "3"
 
@@ -13,3 +19,15 @@ tempfile = "3"
 lto = true
 codegen-units = 1
 strip = true
+
+[dev-dependencies]
+pulldown-cmark = { version = "0.12.2", default-features = false, features = ["html"] }
+serde_json = "1.0.154"
+
+# Upstream 0.31 discards paste key presses when no plain text is available.
+[patch.crates-io]
+egui-winit = { path = "vendor/egui-winit" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.9"
+core-foundation-sys = "0.8"
