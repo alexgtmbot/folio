@@ -465,8 +465,6 @@ pub fn layout(
             let trimmed = line.trim_start_matches([' ', '\t']);
             let indent = line.len() - trimmed.len();
             let line_start = at == 0 || text[..at].ends_with('\n');
-            let bullet = line_start && ["- ", "+ ", "* "].iter().any(|p| trimmed.starts_with(p));
-            let task_bullet = bullet && before_task && at + line.len() == end;
             let quote_prefix = if line_start {
                 trimmed
                     .bytes()
@@ -475,6 +473,10 @@ pub fn layout(
             } else {
                 0
             };
+            let marker = indent + quote_prefix;
+            let content = &line[marker..];
+            let bullet = line_start && ["- ", "+ ", "* "].iter().any(|p| content.starts_with(p));
+            let task_bullet = bullet && before_task && at + line.len() == end;
             let mut shown = String::new();
             for (i, c) in line.char_indices() {
                 shown.push(if c == '\n' || (line_start && i < indent) {
@@ -483,12 +485,12 @@ pub fn layout(
                     '|'
                 } else if i < indent + quote_prefix && trimmed.starts_with('>') {
                     c
-                } else if bullet && !task_bullet && i == indent {
+                } else if bullet && !task_bullet && i == marker {
                     '•'
                 } else if c == ' '
                     && line_start
                     && !task_bullet
-                    && (bullet || trimmed.as_bytes().first().is_some_and(u8::is_ascii_digit))
+                    && (bullet || content.as_bytes().first().is_some_and(u8::is_ascii_digit))
                 {
                     ' '
                 } else if line_start && (c.is_ascii_digit() || matches!(c, '.' | ')' | '>')) {
@@ -898,6 +900,13 @@ mod tests {
         ] {
             assert!(nested_quote(source, 480., Color32::WHITE, 17.).is_none());
         }
+    }
+
+    #[test]
+    fn quoted_list_markers_stay_visible_during_editing() {
+        let md = "> - one\n> - two\n>\n> > 1. nested";
+        let job = layout(md, 480., Color32::WHITE, false, 0, 17.);
+        assert_eq!(job.text, "| • one\n| • two\n|\n| | 1. nested");
     }
 
     #[test]
