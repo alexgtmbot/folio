@@ -19,6 +19,7 @@ struct Tab {
     doc: Document,
     selection: Range<usize>,
     source: bool,
+    preview: bool,
     slash_index: usize,
     dismissed: Option<(usize, String)>,
     edited: Option<Instant>,
@@ -39,6 +40,7 @@ struct Editor {
     error: Option<String>,
     find: Option<String>,
     focus_find: bool,
+    show_outline: bool,
     jump: Option<Range<usize>>,
 }
 
@@ -54,6 +56,7 @@ impl Editor {
             error: None,
             find: None,
             focus_find: false,
+            show_outline: false,
             jump: None,
         };
         for p in std::env::args_os().skip(1) {
@@ -69,6 +72,7 @@ impl Editor {
             id: self.next_id,
             doc,
             source: false,
+            preview: false,
             slash_index: 0,
             dismissed: None,
             selection: 0..0,
@@ -225,7 +229,12 @@ impl Editor {
     }
     fn toolbar(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::top("commands").show(ctx, |ui| {
+            ui.add_space(4.);
             ui.horizontal(|ui| {
+                ui.style_mut().visuals.button_frame = false;
+                ui.spacing_mut().button_padding = egui::vec2(8., 5.);
+                ui.toggle_value(&mut self.show_outline, "Outline");
+                ui.separator();
                 ui.menu_button("File", |ui| {
                     for (name, action) in [
                         ("New", 0),
@@ -276,7 +285,26 @@ impl Editor {
                     self.find = Some(String::new());
                     self.focus_find = true;
                 }
+                let tab = &mut self.tabs[self.active];
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.selectable_value(&mut tab.source, true, "Source");
+                    if ui
+                        .selectable_label(!tab.source && tab.preview, "Split")
+                        .clicked()
+                    {
+                        tab.source = false;
+                        tab.preview = true;
+                    }
+                    if ui
+                        .selectable_label(!tab.source && !tab.preview, "Write")
+                        .clicked()
+                    {
+                        tab.source = false;
+                        tab.preview = false;
+                    }
+                });
             });
+            ui.add_space(4.);
             if self.tabs.len() > 1 {
                 egui::ScrollArea::horizontal().show(ui, |ui| {
                     ui.horizontal(|ui| {
@@ -314,30 +342,37 @@ impl Editor {
     fn editor(&mut self, ctx: &egui::Context) {
         let tab = &mut self.tabs[self.active];
         let id = egui::Id::new(("editor", tab.id));
-        egui::SidePanel::left("outline")
-            .default_width(155.)
-            .show(ctx, |ui| {
-                ui.add_space(10.);
-                ui.strong("Outline");
-                ui.separator();
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    for (pos, title) in window::outline(&tab.doc.text) {
-                        if ui.selectable_label(false, title).clicked() {
-                            self.jump = Some(pos..pos);
+        if self.show_outline {
+            egui::SidePanel::left("outline")
+                .default_width(155.)
+                .show(ctx, |ui| {
+                    ui.add_space(10.);
+                    ui.strong("Outline");
+                    ui.separator();
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        let headings = window::outline(&tab.doc.text);
+                        if headings.is_empty() {
+                            ui.weak("No headings yet");
                         }
-                    }
+                        for (pos, title) in headings {
+                            if ui.selectable_label(false, title).clicked() {
+                                self.jump = Some(pos..pos);
+                            }
+                        }
+                    });
                 });
-            });
+        }
         egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.weak(format!("{} words", tab.doc.text.split_whitespace().count()));
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.selectable_value(&mut tab.source, true, "Source");
-                    ui.selectable_value(&mut tab.source, false, "Write");
-                });
+                let count = tab.doc.text.split_whitespace().count();
+                ui.small(format!(
+                    "{} {}",
+                    count,
+                    if count == 1 { "word" } else { "words" }
+                ));
             });
         });
-        if !tab.source {
+        if !tab.source && tab.preview {
             let render = |ui: &mut egui::Ui| {
                 ui.strong("Preview");
                 ui.separator();
@@ -359,166 +394,201 @@ impl Editor {
                     .show(ctx, render);
             }
         }
-        egui::CentralPanel::default().show(ctx, |ui| {
-            let target = self.jump.take();
-            if let Some(r) = &target {
-                let mut state = TextEdit::load_state(ctx, id).unwrap_or_default();
-                state.cursor.set_char_range(Some(CCursorRange::two(
-                    CCursor::new(r.start),
-                    CCursor::new(r.end),
-                )));
-                state.store(ctx, id);
-                ctx.memory_mut(|m| m.request_focus(id));
-            }
-            egui::ScrollArea::vertical().id_salt(tab.id).show(ui, |ui| {
-                ui.add_space(14.);
-                let caret = target.as_ref().unwrap_or(&tab.selection).end;
-                let mut layouter = |ui: &egui::Ui, s: &str, w: f32| {
-                    ui.fonts(|f| {
-                        f.layout_job(window::layout(
-                            s,
-                            w,
-                            ui.visuals().text_color(),
-                            tab.source,
-                            caret,
-                        ))
-                    })
-                };
+        egui::CentralPanel::default()
+            .frame(
+                egui::Frame::central_panel(&ctx.style())
+                    .inner_margin(egui::Margin::symmetric(24, 12)),
+            )
+            .show(ctx, |ui| {
+                let target = self.jump.take();
+                if let Some(r) = &target {
+                    let mut state = TextEdit::load_state(ctx, id).unwrap_or_default();
+                    state.cursor.set_char_range(Some(CCursorRange::two(
+                        CCursor::new(r.start),
+                        CCursor::new(r.end),
+                    )));
+                    state.store(ctx, id);
+                    ctx.memory_mut(|m| m.request_focus(id));
+                }
+                let gutter = ((ui.available_width() - 730.) * 0.5).max(0.);
+                ui.scope_builder(
+                    egui::UiBuilder::new().max_rect(ui.max_rect().shrink2(egui::vec2(gutter, 0.))),
+                    |ui| {
+                        egui::ScrollArea::vertical().id_salt(tab.id).show(ui, |ui| {
+                            ui.add_space(14.);
+                            let caret = target.as_ref().unwrap_or(&tab.selection).end;
+                            let mut layouter = |ui: &egui::Ui, s: &str, w: f32| {
+                                ui.fonts(|f| {
+                                    f.layout_job(window::layout(
+                                        s,
+                                        w,
+                                        ui.visuals().text_color(),
+                                        tab.source,
+                                        caret,
+                                    ))
+                                })
+                            };
 
-                let has_focus = ui.memory(|m| m.has_focus(id));
-                let mut choose = false;
-                let mut escape = false;
-                if has_focus
-                    && !tab.source
-                    && let Some(r) = slash::query(&tab.doc.text, &tab.selection)
-                {
-                    let query = tab.doc.text[r.start + 1..r.end].to_lowercase();
-                    let count = slash::COMMANDS
-                        .iter()
-                        .filter(|c| c.name.to_ascii_lowercase().contains(&query))
-                        .count();
-                    if count > 0 && tab.dismissed.as_ref() != Some(&(r.start, query.to_owned())) {
-                        ui.input_mut(|i| {
-                            if i.consume_key(Modifiers::NONE, Key::ArrowDown) {
-                                tab.slash_index = (tab.slash_index + 1) % count;
-                            }
-                            if i.consume_key(Modifiers::NONE, Key::ArrowUp) {
-                                tab.slash_index =
-                                    (tab.slash_index.min(count - 1) + count - 1) % count;
-                            }
-                            choose = i.consume_key(Modifiers::NONE, Key::Enter)
-                                || i.consume_key(Modifiers::NONE, Key::Tab);
-                            escape = i.consume_key(Modifiers::NONE, Key::Escape);
-                        });
-                    }
-                }
-                let output = TextEdit::multiline(&mut tab.doc.text)
-                    .id(id)
-                    .frame(false)
-                    .desired_width(f32::INFINITY)
-                    .desired_rows(24)
-                    .layouter(&mut layouter)
-                    .show(ui);
-                if let Some(cursor) = output.cursor_range {
-                    tab.selection = cursor.as_sorted_char_range();
-                }
-                if let Some(target) = target {
-                    let c = output.galley.from_ccursor(CCursor::new(target.start));
-                    ui.scroll_to_rect(
-                        output
-                            .galley
-                            .pos_from_cursor(&c)
-                            .translate(output.galley_pos.to_vec2()),
-                        None,
-                    );
-                }
-                if output.response.changed() {
-                    tab.dismissed = None;
-                    tab.slash_index = 0;
-                }
-                if let Some(r) = slash::query(&tab.doc.text, &tab.selection)
-                    .filter(|_| !tab.source && (has_focus || output.response.has_focus()))
-                {
-                    let query = tab.doc.text[r.start + 1..r.end].to_lowercase();
-                    if escape {
-                        tab.dismissed = Some((r.start, query.clone()));
-                    }
-                    if tab.dismissed.as_ref() != Some(&(r.start, query.clone())) {
-                        let matches: Vec<_> = slash::COMMANDS
-                            .iter()
-                            .filter(|c| c.name.to_lowercase().contains(&query))
-                            .collect();
-                        if !matches.is_empty() {
-                            ui.memory_mut(|m| {
-                                m.set_focus_lock_filter(
-                                    id,
-                                    egui::EventFilter {
-                                        escape: true,
-                                        tab: true,
-                                        horizontal_arrows: true,
-                                        vertical_arrows: true,
-                                    },
-                                )
-                            });
-                            tab.slash_index = tab.slash_index.min(matches.len() - 1);
-                            let caret = output.galley.from_ccursor(CCursor::new(tab.selection.end));
-                            let rect = output
-                                .galley
-                                .pos_from_cursor(&caret)
-                                .translate(output.galley_pos.to_vec2());
-                            let above = ctx.screen_rect().bottom() - rect.bottom() < 230.
-                                && rect.top() > 230.;
-                            let mut picked = choose.then_some(tab.slash_index);
-                            egui::Area::new(id.with("slash"))
-                                .order(egui::Order::Foreground)
-                                .pivot(if above {
-                                    egui::Align2::LEFT_BOTTOM
-                                } else {
-                                    egui::Align2::LEFT_TOP
-                                })
-                                .fixed_pos(if above {
-                                    rect.left_top()
-                                } else {
-                                    rect.left_bottom()
-                                })
-                                .show(ctx, |ui| {
-                                    egui::Frame::popup(ui.style()).show(ui, |ui| {
-                                        egui::ScrollArea::vertical().max_height(210.).show(
-                                            ui,
-                                            |ui| {
-                                                for (i, c) in matches.iter().enumerate() {
-                                                    let row = ui.selectable_label(
-                                                        i == tab.slash_index,
-                                                        c.name,
-                                                    );
-                                                    if i == tab.slash_index {
-                                                        row.scroll_to_me(None);
-                                                    }
-                                                    if row.clicked() {
-                                                        picked = Some(i);
-                                                    }
-                                                }
-                                            },
-                                        );
+                            let has_focus = ui.memory(|m| m.has_focus(id));
+                            let mut choose = false;
+                            let mut moved = false;
+                            let mut escape = false;
+                            if has_focus
+                                && !tab.source
+                                && let Some(r) = slash::query(&tab.doc.text, &tab.selection)
+                            {
+                                let query = tab.doc.text[r.start + 1..r.end].to_lowercase();
+                                let count = slash::COMMANDS
+                                    .iter()
+                                    .filter(|c| c.name.to_ascii_lowercase().contains(&query))
+                                    .count();
+                                if count > 0
+                                    && tab.dismissed.as_ref() != Some(&(r.start, query.to_owned()))
+                                {
+                                    ui.input_mut(|i| {
+                                        if i.consume_key(Modifiers::NONE, Key::ArrowDown) {
+                                            moved = true;
+                                            tab.slash_index = (tab.slash_index + 1) % count;
+                                        }
+                                        if i.consume_key(Modifiers::NONE, Key::ArrowUp) {
+                                            moved = true;
+                                            tab.slash_index =
+                                                (tab.slash_index.min(count - 1) + count - 1)
+                                                    % count;
+                                        }
+                                        choose = i.consume_key(Modifiers::NONE, Key::Enter)
+                                            || i.consume_key(Modifiers::NONE, Key::Tab);
+                                        escape = i.consume_key(Modifiers::NONE, Key::Escape);
                                     });
-                                });
-                            if let Some(i) = picked {
-                                let pos = slash::insert(&mut tab.doc.text, r, matches[i]);
-                                self.jump = Some(pos..pos);
-                                tab.selection = pos..pos;
+                                }
+                            }
+                            let output = TextEdit::multiline(&mut tab.doc.text)
+                                .id(id)
+                                .frame(false)
+                                .desired_width(f32::INFINITY)
+                                .desired_rows(24)
+                                .layouter(&mut layouter)
+                                .show(ui);
+                            if let Some(cursor) = output.cursor_range {
+                                tab.selection = cursor.as_sorted_char_range();
+                            }
+                            if let Some(target) = target {
+                                let c = output.galley.from_ccursor(CCursor::new(target.start));
+                                ui.scroll_to_rect(
+                                    output
+                                        .galley
+                                        .pos_from_cursor(&c)
+                                        .translate(output.galley_pos.to_vec2()),
+                                    None,
+                                );
+                            }
+                            if output.response.changed() {
+                                tab.dismissed = None;
+                                tab.slash_index = 0;
+                            }
+                            if let Some(r) =
+                                slash::query(&tab.doc.text, &tab.selection).filter(|_| {
+                                    !tab.source && (has_focus || output.response.has_focus())
+                                })
+                            {
+                                let query = tab.doc.text[r.start + 1..r.end].to_lowercase();
+                                if escape {
+                                    tab.dismissed = Some((r.start, query.clone()));
+                                }
+                                if tab.dismissed.as_ref() != Some(&(r.start, query.clone())) {
+                                    let matches: Vec<_> = slash::COMMANDS
+                                        .iter()
+                                        .filter(|c| c.name.to_lowercase().contains(&query))
+                                        .collect();
+                                    if !matches.is_empty() {
+                                        ui.memory_mut(|m| {
+                                            m.set_focus_lock_filter(
+                                                id,
+                                                egui::EventFilter {
+                                                    escape: true,
+                                                    tab: true,
+                                                    horizontal_arrows: true,
+                                                    vertical_arrows: true,
+                                                },
+                                            )
+                                        });
+                                        tab.slash_index = tab.slash_index.min(matches.len() - 1);
+                                        let caret = output
+                                            .galley
+                                            .from_ccursor(CCursor::new(tab.selection.end));
+                                        let rect = output
+                                            .galley
+                                            .pos_from_cursor(&caret)
+                                            .translate(output.galley_pos.to_vec2());
+                                        let above = ctx.screen_rect().bottom() - rect.bottom()
+                                            < 230.
+                                            && rect.top() > 230.;
+                                        let mut picked = choose.then_some(tab.slash_index);
+                                        egui::Area::new(id.with("slash"))
+                                            .order(egui::Order::Foreground)
+                                            .default_size(egui::vec2(248., 300.))
+                                            .pivot(if above {
+                                                egui::Align2::LEFT_BOTTOM
+                                            } else {
+                                                egui::Align2::LEFT_TOP
+                                            })
+                                            .fixed_pos(if above {
+                                                rect.left_top()
+                                            } else {
+                                                rect.left_bottom()
+                                            })
+                                            .show(ctx, |ui| {
+                                                egui::Frame::popup(ui.style())
+                                                    .corner_radius(10)
+                                                    .inner_margin(8)
+                                                    .show(ui, |ui| {
+                                                        ui.set_width(232.);
+                                                        ui.spacing_mut().interact_size.y = 28.;
+                                                        ui.spacing_mut().item_spacing.y = 2.;
+                                                        egui::ScrollArea::vertical()
+                                                            .max_height(258.)
+                                                            .show(ui, |ui| {
+                                                                for (i, c) in
+                                                                    matches.iter().enumerate()
+                                                                {
+                                                                    let row = ui.add_sized(
+                                                                        [ui.available_width(), 28.],
+                                                                        egui::SelectableLabel::new(
+                                                                            i == tab.slash_index,
+                                                                            c.name,
+                                                                        ),
+                                                                    );
+                                                                    if moved && i == tab.slash_index
+                                                                    {
+                                                                        row.scroll_to_me(None);
+                                                                    }
+                                                                    if row.clicked() {
+                                                                        picked = Some(i);
+                                                                    }
+                                                                }
+                                                            });
+                                                    });
+                                            });
+                                        if let Some(i) = picked {
+                                            let pos =
+                                                slash::insert(&mut tab.doc.text, r, matches[i]);
+                                            self.jump = Some(pos..pos);
+                                            tab.selection = pos..pos;
+                                            tab.doc.dirty = true;
+                                            tab.edited = Some(Instant::now());
+                                            ctx.request_repaint();
+                                        }
+                                    }
+                                }
+                            }
+                            if output.response.changed() {
                                 tab.doc.dirty = true;
                                 tab.edited = Some(Instant::now());
-                                ctx.request_repaint();
                             }
-                        }
-                    }
-                }
-                if output.response.changed() {
-                    tab.doc.dirty = true;
-                    tab.edited = Some(Instant::now());
-                }
+                        });
+                    },
+                );
             });
-        });
     }
 }
 
@@ -613,6 +683,17 @@ fn configure_fonts(ctx: &egui::Context) {
         .families
         .insert(egui::FontFamily::Name("Bold".into()), family);
     ctx.set_fonts(fonts);
+    ctx.style_mut(|style| {
+        let dark = style.visuals.dark_mode;
+        let v = &mut style.visuals;
+        if dark {
+            v.panel_fill = egui::Color32::from_rgb(30, 34, 35);
+            v.window_fill = egui::Color32::from_rgb(40, 46, 46);
+            v.override_text_color = Some(egui::Color32::from_rgb(231, 233, 225));
+            v.selection.bg_fill = egui::Color32::from_rgb(49, 89, 84);
+        }
+        style.spacing.item_spacing = egui::vec2(7., 5.);
+    });
 }
 
 fn self_test() {

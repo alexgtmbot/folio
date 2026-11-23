@@ -13,7 +13,7 @@ Open a file, format it as you write, and save ordinary Markdown. Folio runs in i
 | Write | Source |
 | --- | --- |
 | [![Write view with the outline and formatted field notes](screenshots/write.png)](screenshots/write.png) | [![Source view showing the same field notes as Markdown](screenshots/source.png)](screenshots/source.png) |
-| Choose a heading in the left outline to jump to that section. Use **Format** to style the current line or selection. | Switch modes at the bottom right to see the characters Folio saves, including heading markers, emphasis, and tasks. |
+| Choose a heading in **Outline** to jump to that section. Use **Format** to style the current line or selection. | Switch modes in the toolbar to see the characters Folio saves, including heading markers, emphasis, and tasks. |
 
 ## Run from source
 
@@ -27,9 +27,9 @@ From this checkout, run `cargo run --release --locked`. To open an existing docu
 
 ## Editing
 
-Open local files through **File → Open** or drag them into the window. Each document has its own tab. Choose **Write** to edit alongside a live CommonMark preview, or **Source** for the single-pane Markdown editor. The preview renders nested lists, tables, task lists, fenced code, blockquotes, links, local images, strikethrough, footnotes, and definition lists. Raw HTML is displayed as text. The outline jumps to headings, and Find selects the next occurrence.
+Open local files through **File → Open** or drag them into the window. Each document has its own tab. **Write** opens a single writing canvas. Choose **Split** for a live CommonMark preview, **Source** for literal Markdown, or **Outline** to navigate headings. The preview renders nested lists, tables, task lists, fenced code, blockquotes, links, local images, strikethrough, footnotes, and definition lists. Raw HTML is displayed as text. The outline jumps to headings, and Find selects the next occurrence.
 
-In Write mode, type **/** at the beginning of a line and filter by name (for example, **/table**). Use ↑ or ↓ to select, Enter or Tab to insert, or Escape to keep the literal text. Slash commands are disabled inside code blocks.
+In Write mode, type **/** at the beginning of a line and filter by name (for example, **/table**). Use ↑ or ↓ to select, Enter or Tab to insert, or Escape to keep the literal text. Slash commands are disabled inside code blocks. [See the command menu](screenshots/commands.png).
 
 | Command | Mac | Windows / Linux |
 |---|---|---|
