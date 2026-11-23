@@ -235,6 +235,21 @@ impl Editor {
             }
         }
     }
+    fn handle_drops(&mut self, ctx: &egui::Context) {
+        let drops: Vec<PathBuf> = ctx.input(|i| {
+            i.raw
+                .dropped_files
+                .iter()
+                .filter_map(|f| f.path.clone())
+                .collect()
+        });
+        let (images, docs): (Vec<_>, Vec<_>) =
+            drops.into_iter().partition(|p| attachment::supported(p));
+        self.insert_images(images.into_iter().map(attachment::Image::File).collect());
+        for path in docs {
+            self.open(&path);
+        }
+    }
     fn insert_images(&mut self, images: Vec<attachment::Image>) {
         if images.is_empty() {
             return;
@@ -1122,19 +1137,7 @@ impl eframe::App for Editor {
         }
         if self.closing.is_none() && self.error.is_none() && self.link.is_none() {
             self.shortcuts(ctx);
-            let drops: Vec<PathBuf> = ctx.input(|i| {
-                i.raw
-                    .dropped_files
-                    .iter()
-                    .filter_map(|f| f.path.clone())
-                    .collect()
-            });
-            let (images, docs): (Vec<_>, Vec<_>) =
-                drops.into_iter().partition(|p| attachment::supported(p));
-            self.insert_images(images.into_iter().map(attachment::Image::File).collect());
-            for path in docs {
-                self.open(&path);
-            }
+            self.handle_drops(ctx);
         }
         self.toolbar(ctx);
         self.editor(ctx);
@@ -1315,4 +1318,37 @@ fn main() -> eframe::Result {
             Ok(Box::new(editor))
         }),
     )
+}
+
+#[cfg(test)]
+mod drop_tests {
+    use super::*;
+    #[test]
+    fn dropped_image_replaces_selection_and_markdown_opens_as_a_tab() {
+        let dir = tempfile::tempdir().unwrap();
+        let note = dir.path().join("note.md");
+        let other = dir.path().join("another.md");
+        let image = dir.path().join("tiny.png");
+        std::fs::write(&note, "a 🦀 b").unwrap();
+        std::fs::write(&other, "# Other").unwrap();
+        image::RgbaImage::new(1, 1).save(&image).unwrap();
+        let mut editor = Editor::new();
+        editor.open(&note);
+        let original = editor.active;
+        editor.tabs[original].selection = 2..3;
+        let raw = egui::RawInput {
+            dropped_files: [image, other]
+                .into_iter()
+                .map(|p| egui::DroppedFile {
+                    path: Some(p),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        };
+        let ctx = egui::Context::default();
+        let _ = ctx.run(raw, |ctx| editor.handle_drops(ctx));
+        assert_eq!(editor.tabs[original].doc.text, "a ![tiny](tiny.png) b");
+        assert_eq!(editor.tabs[editor.active].doc.text, "# Other");
+    }
 }

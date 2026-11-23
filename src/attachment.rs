@@ -45,7 +45,18 @@ pub fn store(note: &Path, image: Image) -> io::Result<String> {
     let parent = note
         .parent()
         .ok_or_else(|| io::Error::other("The note needs a parent folder"))?;
-    let folder = note.with_extension("assets");
+    let image = match image {
+        Image::File(path) => Image::File(path.canonicalize()?),
+        pixels => pixels,
+    };
+    let parent = parent.canonicalize()?;
+    let parent = parent.as_path();
+    let folder = parent
+        .join(
+            note.file_name()
+                .ok_or_else(|| io::Error::other("Missing note filename"))?,
+        )
+        .with_extension("assets");
     let (stem, ext) = match &image {
         Image::File(path) => {
             if !fs::metadata(path)?.is_file() {
