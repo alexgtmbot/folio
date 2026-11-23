@@ -470,7 +470,7 @@ impl Editor {
             }
         }
     }
-    fn finish_document_shortcuts(&mut self, ctx: &egui::Context) {
+    fn finish_document_shortcuts(&mut self, ctx: &egui::Context, close_tab: bool) {
         let save_as =
             ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::S));
         if save_as || ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::S)) {
@@ -482,7 +482,7 @@ impl Editor {
         if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::O)) {
             self.open_dialog();
         }
-        if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::W)) {
+        if close_tab {
             self.request_close_tab();
         }
     }
@@ -1636,6 +1636,9 @@ impl eframe::App for Editor {
         }
         let shortcuts_enabled =
             self.closing.is_none() && self.error.is_none() && self.link.is_none();
+        // Ctrl+W also deletes a word in egui. Reserve it before rendering, then close after edits.
+        let close_tab =
+            shortcuts_enabled && ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::W));
         if shortcuts_enabled {
             self.shortcuts(ctx);
             self.handle_drops(ctx);
@@ -1687,7 +1690,7 @@ impl eframe::App for Editor {
             && self.error.is_none()
             && self.link.is_none()
         {
-            self.finish_document_shortcuts(ctx);
+            self.finish_document_shortcuts(ctx, close_tab);
         }
         if ctx.input(|i| i.viewport().close_requested())
             && !self.quit
@@ -2388,9 +2391,10 @@ mod slash_menu_tests {
                     ..Default::default()
                 },
                 |ctx| {
+                    let close_tab = ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::W));
                     app.shortcuts(ctx);
                     app.editor(ctx);
-                    app.finish_document_shortcuts(ctx);
+                    app.finish_document_shortcuts(ctx, close_tab);
                 },
             );
         }
@@ -2434,9 +2438,10 @@ mod slash_menu_tests {
                     ..Default::default()
                 },
                 |ctx| {
+                    let close_tab = ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::W));
                     app.shortcuts(ctx);
                     app.editor(ctx);
-                    app.finish_document_shortcuts(ctx);
+                    app.finish_document_shortcuts(ctx, close_tab);
                 },
             );
         }

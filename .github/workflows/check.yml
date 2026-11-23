@@ -41,18 +41,19 @@ jobs:
                 window=$(xdotool search --onlyvisible --name "$1" | head -1) && return 0
                 sleep 0.5
               done
-              xwininfo -root -tree >&2
+              xdotool search --onlyvisible --name ".*" getwindowname %@ >&2
               return 1
             }
             find_window "Second note[.]md"
             pid=$(xdotool getwindowpid "$window")
             trap "kill $pid || true" EXIT
             xdotool windowfocus --sync "$window"
-            xdotool key ctrl+w
+            xdotool mousemove --window "$window" 320 180 click 1
+            xdotool key --clearmodifiers ctrl+w
             second=$window
             find_window "Window check[.]md"
             test "$second" = "$window"
-            xdotool mousemove --window "$window" 300 65 click 1
+            xdotool mousemove --window "$window" 170 116 click 1
             xdotool key ctrl+a
             xdotool type --delay 50 "Portable"
             xdotool key ctrl+1 ctrl+s
