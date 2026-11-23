@@ -35,7 +35,9 @@ In Write or Split, select words and paste an HTTP or HTTPS URL to link them. Sel
 
 Drop a PNG, JPEG, GIF, or WebP onto the editor to insert it at the caret. **⌘V** (Ctrl+V on Windows and Linux) also accepts clipboard images and copied image files. Folio saves pasted pixels as PNG and copies external images into a sibling folder such as `Field notes.assets/`. Images already inside the note’s directory are linked in place. For a new note, choose a save location when prompted. Keep the image folder with the Markdown file when sharing.
 
-Choose **Table** or type `/table` and press Enter. Click a table to edit its cells, use Tab to move between fields, and choose **+ Row** or **+ Column** to expand it. Right-click a cell for row, column, alignment, and removal actions. Plain-text tables expose the menu directly in Write view. Tab in the last cell adds a row. A typed or pasted GitHub-style pipe table opens the same grid. Source shows the saved pipe syntax. Escape returns to the rendered table. [See the table editor](screenshots/table.png).
+To build a list visually, choose **• List**, type an item, and press Enter for the next one. Tab nests the current item under its previous sibling. Shift+Tab brings it back one level. Enter on an empty nested item continues the parent list. Enter on an empty top-level item ends the list.
+
+Choose **Table**, or type `/table` and press Enter. Click a cell to edit it. Tab moves forward and Shift+Tab moves backward across row boundaries. Tab from the last cell adds a row. Right-click a cell to insert or remove rows and columns or change column alignment. Press Escape to return to the rendered table, or ⌘Enter (Ctrl+Enter on Windows and Linux) to write below it. You can also paste a GitHub-style pipe table and edit it in the same grid. [See the table editor](screenshots/table.png).
 
 The test suite checks the parser against all 652 examples in CommonMark 0.31.2 and exercises the preview for each example. Tables, tasks, footnotes, definition lists, and strikethrough are extensions. HTML is inert and remote images are disabled.
 
@@ -58,7 +60,9 @@ Named documents autosave after two idle seconds. New documents ask for a destina
 
 ## How it works
 
-[The editor](src/main.rs) feeds one editable string to egui. [The layout code](src/window.rs) styles that string while preserving character positions for the caret. [The document code](src/document.rs) translates selections to UTF-8 byte offsets, edits Markdown, and uses a temporary file in the destination directory for atomic replacement. [The Markdown rules](src/lib.rs) handle block prefixes, inline formatting, code fences, BOMs and line endings.
+Each tab owns a `Document`. Its `text: String` holds the Markdown that will be saved. In Write mode, selecting a word and pressing Bold inserts `**` on either side of the word. The visual layout hides those delimiters and draws the word in bold. Split view shows both representations of the same string. [Editor](src/main.rs) · [Formatting and saving](src/document.rs) · [Visual layout](src/window.rs)
+
+Rust strings contain UTF-8 bytes. The caret counts characters, so the document code converts the selection to byte offsets before editing. For example, `é` occupies two bytes but advances the caret by one character. On save, Folio restores the file’s line-ending convention and optional UTF-8 byte-order mark, then replaces the destination using a temporary file in the same directory. [File format](src/lib.rs) · [Document](src/document.rs)
 
 Run `cargo test --locked` for the editing and file tests. Run `cargo run --release --locked -- --self-test` to exercise both editor layouts and a disk round trip. On Apple Silicon, `./package.sh` builds a drag-to-Applications disk image. Linux and Windows packages include the executable and licenses.
 
