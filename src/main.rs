@@ -94,6 +94,13 @@ struct Editor {
 
 impl Editor {
     fn new() -> Self {
+        let paths = std::env::args_os().skip(1).map(PathBuf::from);
+        #[cfg(target_os = "macos")]
+        let paths = paths.chain(mac_open::pending());
+        Self::with_documents(paths)
+    }
+
+    fn with_documents(paths: impl IntoIterator<Item = PathBuf>) -> Self {
         let mut app = Self {
             tabs: Vec::new(),
             active: 0,
@@ -110,8 +117,8 @@ impl Editor {
             text_size: 17.,
             jump: None,
         };
-        for p in std::env::args_os().skip(1) {
-            app.open(Path::new(&p));
+        for path in paths {
+            app.open(&path);
         }
         if app.tabs.is_empty() {
             app.add(Document::default());
@@ -1601,6 +1608,21 @@ fn main() -> eframe::Result {
 #[cfg(test)]
 mod drop_tests {
     use super::*;
+    #[test]
+    fn launch_documents_precede_the_untitled_fallback() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("Field journal.md");
+        std::fs::write(&path, "# Journal").unwrap();
+        let app = Editor::with_documents([path.clone(), path.clone()]);
+        assert_eq!(app.tabs.len(), 1);
+        assert_eq!(app.tabs[0].doc.text, "# Journal");
+        let mut app = Editor::with_documents([]);
+        app.tabs[0].doc.text.push_str("draft");
+        app.open(&path);
+        assert_eq!(app.tabs.len(), 2);
+        assert_eq!(app.tabs[0].doc.text, "draft");
+    }
+
     #[test]
     fn dropped_image_replaces_selection_and_markdown_opens_as_a_tab() {
         let dir = tempfile::tempdir().unwrap();
