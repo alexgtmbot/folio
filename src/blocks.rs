@@ -146,6 +146,18 @@ pub fn with_references(text: &str, r: &Range<usize>, definitions: &[Range<usize>
 /// Land on the neighboring block's first or last content line, past its block marker.
 pub fn adjacent_caret(text: &str, block: Range<usize>, up: bool, column: usize) -> usize {
     let content = text[block.clone()].trim_end_matches(['\r', '\n']);
+    // A Setext underline has no visual row for the caret to land on.
+    let content = if up
+        && let Some((title, underline)) = content.rsplit_once('\n')
+        && underline.trim().starts_with(['-', '='])
+        && matches!(
+            Parser::new_ext(content, options()).next(),
+            Some(Event::Start(pulldown_cmark::Tag::Heading { .. }))
+        ) {
+        title.trim_end_matches('\r')
+    } else {
+        content
+    };
     let line = if up {
         content.rsplit('\n').next()
     } else {
@@ -242,6 +254,13 @@ mod tests {
         assert_eq!(adjacent_caret(text, r[0].clone(), true, 10), 3);
         assert_eq!(adjacent_caret(text, r[1].clone(), false, 2), 7);
         assert_eq!(adjacent_caret(text, r[1].clone(), true, 2), 13);
+        let text = "Intro\n\nField\nCafé notes\n-----\n\nNext";
+        let heading = ranges(text)[1].clone();
+        let caret = adjacent_caret(text, heading, true, 4);
+        assert_eq!(
+            text.chars().take(caret).collect::<String>(),
+            "Intro\n\nField\nCafé"
+        );
     }
     #[test]
     fn blocks_cover_original_bytes() {
