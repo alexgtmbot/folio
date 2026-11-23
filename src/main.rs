@@ -974,6 +974,31 @@ impl Editor {
                                     });
                                 }
                             }
+                            if visual
+                                && has_focus
+                                && !choose
+                                && tab.selection.is_empty()
+                                && ui.input(|i| {
+                                    i.key_pressed(Key::Tab)
+                                        && (i.modifiers == Modifiers::NONE
+                                            || i.modifiers == Modifiers::SHIFT)
+                                })
+                            {
+                                let modifiers = ui.input(|i| i.modifiers);
+                                if let Some(pos) = document::nest_item(
+                                    &mut tab.doc.text,
+                                    tab.selection.start,
+                                    modifiers.shift,
+                                ) {
+                                    ui.input_mut(|i| i.consume_key(modifiers, Key::Tab));
+                                    tab.selection = pos..pos;
+                                    self.jump = Some(tab.selection.clone());
+                                    tab.doc.dirty = true;
+                                    tab.edited = Some(Instant::now());
+                                    ctx.request_repaint();
+                                    return;
+                                }
+                            }
                             if has_focus
                                 && !tab.source
                                 && !choose
@@ -1577,6 +1602,34 @@ mod drop_tests {
 mod slash_menu_tests {
     use super::*;
 
+    #[test]
+    fn tab_and_shift_tab_change_the_visual_list_nesting() {
+        let ctx = egui::Context::default();
+        configure_fonts(&ctx);
+        let mut app = Editor::new();
+        let mut doc = Document::default();
+        doc.text = "- parent\n- child".into();
+        app.add(doc);
+        app.jump = Some(16..16);
+        for modifiers in [None, Some(Modifiers::NONE), None, Some(Modifiers::SHIFT)] {
+            let mut input = egui::RawInput::default();
+            if let Some(m) = modifiers {
+                input.modifiers = m;
+                input.events.push(egui::Event::Key {
+                    key: Key::Tab,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: m,
+                });
+            }
+            let _ = ctx.run(input, |ctx| app.editor(ctx));
+            if modifiers == Some(Modifiers::NONE) {
+                assert_eq!(app.tabs[app.active].doc.text, "- parent\n  - child");
+            }
+        }
+        assert_eq!(app.tabs[app.active].doc.text, "- parent\n- child");
+    }
     #[test]
     fn keyboard_accepts_checkbox_alias_and_escape_preserves_literal_query() {
         let ctx = egui::Context::default();

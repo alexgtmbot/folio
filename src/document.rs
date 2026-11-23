@@ -191,6 +191,109 @@ pub fn format(text: &mut String, selection: Range<usize>, cmd: Format) -> Range<
     }
 }
 
+/// Change the nesting of the list item at the caret, including its continuation lines.
+pub fn nest_item(text: &mut String, caret: usize, lift: bool) -> Option<usize> {
+    use pulldown_cmark::{Event, Parser, Tag, TagEnd};
+    let byte = byte_at(text, caret);
+    let mut lists = Vec::new();
+    let mut parents = Vec::new();
+    let mut found = None;
+    for (e, r) in Parser::new_ext(text, crate::blocks::options()).into_offset_iter() {
+        match e {
+            Event::Start(Tag::List(_)) => lists.push(None),
+            Event::End(TagEnd::List(_)) => {
+                lists.pop();
+            }
+            Event::Start(Tag::Item) => {
+                let previous = lists.last_mut()?.replace(r.start);
+                if r.contains(&byte) || (byte == text.len() && r.end == byte) {
+                    found = Some((r.clone(), previous, parents.last().copied()));
+                }
+                parents.push(r.start);
+            }
+            Event::End(TagEnd::Item) => {
+                parents.pop();
+            }
+            Event::Start(Tag::CodeBlock(_)) if r.contains(&byte) => return None,
+            _ => {}
+        }
+    }
+    let (item, previous, parent) = found?;
+    let line_start = |n| text[..n].rfind('\n').map_or(0, |i| i + 1);
+    let start = line_start(item.start);
+    let indent = &text[start..item.start];
+    if !indent.bytes().all(|c| c == b' ') {
+        return None;
+    }
+    let relative = if lift { parent? } else { previous? };
+    let base = line_start(relative);
+    if !text[base..relative].bytes().all(|c| c == b' ') {
+        return None;
+    }
+    let width = if lift {
+        indent.len().checked_sub(relative - base)?
+    } else {
+        let marker_end = text[relative..].find([' ', '\t'])? + relative;
+        let padding = text[marker_end..]
+            .bytes()
+            .take_while(|c| *c == b' ')
+            .count();
+        if padding == 0 {
+            return None;
+        }
+        (marker_end - base + if padding <= 4 { padding } else { 1 }).checked_sub(indent.len())?
+    };
+    if width == 0 {
+        return None;
+    }
+    let mut replacement = String::new();
+    let mut at = start;
+    let mut new_byte = byte;
+    // A nested ordered list starting above one cannot interrupt a paragraph.
+    let digits = text[item.start..]
+        .bytes()
+        .take_while(u8::is_ascii_digit)
+        .count();
+    if !lift
+        && digits > 0
+        && text[item.start..item.start + digits].parse::<u32>().ok() != Some(1)
+        && text[..start]
+            .lines()
+            .next_back()
+            .is_some_and(|line| !line.trim().is_empty())
+    {
+        let newline = if text[..start].ends_with("\r\n") {
+            "\r\n"
+        } else {
+            "\n"
+        };
+        replacement.push_str(newline);
+        new_byte += newline.len();
+    }
+    for line in text[start..item.end].split_inclusive('\n') {
+        if !line.trim().is_empty() {
+            if lift {
+                let remove = line.bytes().take(width).take_while(|c| *c == b' ').count();
+                if at <= byte {
+                    new_byte -= remove.min(byte - at);
+                }
+                replacement.push_str(&line[remove..]);
+            } else {
+                replacement.push_str(&" ".repeat(width));
+                replacement.push_str(line);
+                if at <= byte {
+                    new_byte += width;
+                }
+            }
+        } else {
+            replacement.push_str(line)
+        }
+        at += line.len();
+    }
+    text.replace_range(start..item.end, &replacement);
+    Some(text[..new_byte].chars().count())
+}
+
 /// Return the character selection and replacement for Enter on a Markdown list line.
 pub fn list_enter(text: &str, caret: usize) -> Option<(Range<usize>, String)> {
     use pulldown_cmark::{Event, Parser, Tag};
@@ -235,6 +338,21 @@ pub fn list_enter(text: &str, caret: usize) -> Option<(Range<usize>, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn nest_and_lift_preserve_task_subtree_and_unicode_caret() {
+        let original = "10. parent\n11. [x] café\n    - child\n12. last";
+        let mut md = original.to_owned();
+        let pos = md[..md.find("fé").unwrap()].chars().count();
+        let moved = nest_item(&mut md, pos, false).unwrap();
+        assert_eq!(
+            md,
+            "10. parent\n\n    11. [x] café\n        - child\n12. last"
+        );
+        assert_eq!(nest_item(&mut md, moved, true), Some(pos + 1));
+        assert_eq!(md, original.replacen('\n', "\n\n", 1));
+        assert!(nest_item(&mut md, 0, false).is_none());
+        assert!(nest_item(&mut md, pos, true).is_none());
+    }
     #[test]
     fn enter_handles_list_types_and_exits_empty_items() {
         for (line, next) in [
