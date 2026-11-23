@@ -558,11 +558,22 @@ pub fn block_enter(text: &str, caret: usize) -> Option<(Range<usize>, String)> {
     let body = before.trim_start_matches([' ', '\t']);
     let indent = &before[..before.len() - body.len()];
     let rest_of_line = text[end..].split('\n').next()?;
-    if !body.is_empty() && rest_of_line.is_empty() {
+    if !body.is_empty() {
         let mut depth = 0;
+        let mut prose = false;
         for (event, span) in Parser::new_ext(text, crate::blocks::options()).into_offset_iter() {
+            if span.start > end {
+                break;
+            }
             match event {
                 Event::Start(Tag::Paragraph) if depth == 0 && span.contains(&(end - 1)) => {
+                    if rest_of_line.is_empty() {
+                        return Some((caret..caret, "\n\n".into()));
+                    }
+                    prose = true;
+                    depth += 1;
+                }
+                Event::Text(_) if prose && depth == 1 && (span.start..=span.end).contains(&end) => {
                     return Some((caret..caret, "\n\n".into()));
                 }
                 Event::Start(_) => depth += 1,
@@ -687,6 +698,17 @@ mod tests {
         let text = "Notes\n\nCafé **today**";
         let end = text.chars().count();
         assert_eq!(block_enter(text, end), Some((end..end, "\n\n".into())));
+        for (text, caret) in [
+            ("Café noir", 5),
+            ("Café **today**", 5),
+            ("**today** ends", 9),
+        ] {
+            assert_eq!(
+                block_enter(text, caret),
+                Some((caret..caret, "\n\n".into()))
+            );
+        }
+        assert!(block_enter("Use **bold** here", 8).is_none());
         let nested = "- item\n  continuation";
         assert!(block_enter(nested, nested.len()).is_none());
     }
