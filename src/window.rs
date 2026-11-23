@@ -355,7 +355,9 @@ pub fn editable_block(
             .graphics(|g| g.get(ui.layer_id()).map_or(0, |list| list.next_idx().0))
     });
     let block = &text[r.clone()];
-    if let Some(hit) = crate::table::preview(ui, block, size, r.start) {
+    if (definitions.is_empty() || !block.contains('['))
+        && let Some(hit) = crate::table::preview(ui, block, size, r.start)
+    {
         return hit;
     }
     let width = ui.available_width();

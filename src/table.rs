@@ -85,6 +85,7 @@ fn clipboard_rows(grid: &str) -> Vec<Vec<String>> {
 }
 
 struct Table {
+    needs_viewer: bool,
     alignment: Vec<pulldown_cmark::Alignment>,
     rows: Vec<Vec<Range<usize>>>,
     end: usize,
@@ -209,14 +210,20 @@ impl Table {
             return None;
         }
         let mut rows = Vec::<Vec<_>>::new();
+        let mut needs_viewer = false;
         for (event, range) in events {
             match event {
                 Event::Start(Tag::TableHead | Tag::TableRow) => rows.push(Vec::new()),
+                Event::Start(Tag::Link { .. } | Tag::Image { .. })
+                | Event::Html(_)
+                | Event::InlineHtml(_)
+                | Event::FootnoteReference(_) => needs_viewer = true,
                 Event::Start(Tag::TableCell) => rows.last_mut()?.push(range),
                 _ => {}
             }
         }
         Some(Self {
+            needs_viewer,
             alignment,
             rows,
             start: span.start,
@@ -293,7 +300,7 @@ pub fn preview(
 ) -> Option<crate::window::BlockAction> {
     let table = Table::parse(text)?;
     // Delegate embedded media and links to the full CommonMark viewer.
-    if text.contains('[') || text.contains('<') {
+    if table.needs_viewer {
         return None;
     }
     let cols = table.rows.first()?.len().max(1);
@@ -586,6 +593,27 @@ pub fn edit(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn literal_brackets_and_comparisons_keep_the_interactive_table_grid() {
+        let ctx = egui::Context::default();
+        crate::configure_fonts(&ctx);
+        for (cell, grid) in [
+            ("array[0] < 5", true),
+            ("`[label](path)`", true),
+            ("[label](path)", false),
+            ("![map](map.png)", false),
+            ("<https://example.org>", false),
+            ("<b>value</b>", false),
+        ] {
+            let text = format!("| Test |\n| --- |\n| {cell} |");
+            let _ = ctx.run(Default::default(), |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    assert_eq!(preview(ui, &text, 17., 0).is_some(), grid, "{cell}");
+                });
+            });
+        }
+    }
+
     #[test]
     fn rendered_inline_code_decodes_table_pipes_and_keeps_source_positions() {
         let ctx = egui::Context::default();
