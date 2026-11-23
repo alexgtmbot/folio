@@ -150,13 +150,32 @@ impl Table {
             for cell in grid.iter_mut().flatten() {
                 *cell = cell.replace('\\', "\\\\").replace('|', "\\|");
             }
-            let fits = grid.iter().enumerate().all(|(offset, values)| {
-                self.rows
-                    .get(row + offset)
-                    .and_then(|cells| cells.get(col..col + values.len()))
-                    .is_some_and(|cells| cells.iter().all(|span| !span.is_empty()))
+            let width = self.rows[0].len();
+            let fits_width = grid.iter().enumerate().all(|(offset, values)| {
+                let end = col + values.len();
+                end <= width
+                    && self.rows.get(row + offset).is_none_or(|cells| {
+                        cells
+                            .get(col..end)
+                            .is_some_and(|spans| spans.iter().all(|span| !span.is_empty()))
+                    })
             });
-            if fits {
+            if fits_width {
+                let existing = (self.rows.len() - row).min(grid.len());
+                let newline = if text[self.start..self.end].contains("\r\n") {
+                    "\r\n"
+                } else {
+                    "\n"
+                };
+                let mut appended = String::new();
+                for values in grid.drain(existing..) {
+                    let mut cells = vec![String::new(); width];
+                    for (cell, value) in cells[col..].iter_mut().zip(values) {
+                        *cell = value;
+                    }
+                    appended.push_str(&format!("{newline}| {} |", cells.join(" | ")));
+                }
+                text.insert_str(self.end, &appended);
                 // Work backwards so later replacements cannot shift an earlier cell.
                 for (offset, values) in grid.into_iter().enumerate().rev() {
                     for (index, value) in values.into_iter().enumerate().rev() {
@@ -1059,6 +1078,24 @@ mod tests {
             text,
             source.replace("Café", "Été").replace("old", "new\\|value")
         );
+    }
+
+    #[test]
+    fn spreadsheet_paste_appends_rows_without_reformatting_existing_rows() {
+        let source =
+            "Name   | Status | Notes\r\n:----- | :----: | -----:\r\nCafé   | old    | keep\r\n";
+        let mut text = source.to_owned();
+        Table::parse(&text).unwrap().change(
+            &mut text,
+            1,
+            1,
+            TableAction::PasteGrid("ok\t🦀\nnext\ta|b\nlast\tdone".into()),
+        );
+        assert_eq!(
+            text,
+            "Name   | Status | Notes\r\n:----- | :----: | -----:\r\nCafé   | ok    | 🦀\r\n|  | next | a\\|b |\r\n|  | last | done |\r\n"
+        );
+        assert_eq!(Table::parse(&text).unwrap().rows.len(), 4);
     }
 
     #[test]
